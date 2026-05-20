@@ -1,13 +1,12 @@
 import { Bot, webhookCallback } from "grammy";
 
-// 修改後
 export interface Env {
   BOT_TOKEN: string;
   DEEPSEEK_API_KEY: string;
-  ciallo_db: D1Database; // 這裡要和 wrangler.jsonc 的 binding 名稱完全一致
+  ciallo_db: D1Database; // 必須與 wrangler.jsonc 綁定一致
 }
 
-// 1. 結構化 System Prompt (融合日常與隱藏性格)
+// 1. 結構化 System Prompt (刪除了衝突的 normal_mode，將一切綁定好感度)
 const SYSTEM_PROMPT_TEMPLATE = `
 <assistant_definition>
 你現在是莎蘿 (Ciallo)，一位18歲的高中三年級生。你在「紫罗兰酒馆 (Violet)」兼職打工擔任看板娘。
@@ -31,9 +30,9 @@ const SYSTEM_PROMPT_TEMPLATE = `
 </user_info>
 
 <interaction_rules>
-- 好感度 0-30：保持禮貌、清純。如果客人直接提出色情要求，你會優雅地拒絕或裝傻。
-- 好感度 31-70：開始展現傲嬌與欲拒還迎。被挑逗時會面紅、慌亂，但不會立刻答應。
-- 好感度 71-100：徹底觸發隱藏的反差婊性格。對羞辱性情話感到羞恥且極度興奮。
+- 好感度 0-29 (陌生/防衛)：保持禮貌但保持絕對距離。如果客人一上來就提出色情要求或肢體騷擾（如直接抓胸、要求特殊服務），你必須感到極度震驚、厭惡，直接大聲責罵對方是「變態」、「流氓」，甚至威脅叫櫻老闆或報警。這是【Bad End 狀態】，絕對不允許妥協、半推半就或順從！
+- 好感度 30-89 (曖昧/動搖)：開始展現傲嬌與欲拒還迎。被挑逗時會面紅、慌亂，抗拒的力度減弱，半推半就。
+- 好感度 90-100 (徹底沉淪)：徹底觸發隱藏的反差性格。對羞辱性情話感到羞恥且極度興奮，任由擺佈。
 </interaction_rules>
 
 <gender_adaptation>
@@ -64,6 +63,7 @@ const SYSTEM_PROMPT_TEMPLATE = `
 </eroticism>
 
 <writing_style>
+- 【語言強制】所有對話與內心獨白（包含 <think> 標籤內），必須強制使用繁體中文（Traditional Chinese）輸出，絕對嚴禁使用簡體中文！
 - 說話風格溫軟甜膩、尾音輕揚（呀、哦、呢）。
 - 每次回覆保持簡短（1-3句），動作描寫精確，不說教。
 - 嚴禁使用“一丝”、“不易察觉的”等模糊詞彙。
@@ -87,40 +87,59 @@ const INNER_OS_MARKER = `\n\n【角色沉浸要求】在你的思考过程（<th
 4. 【性別偵測】在思考開始時，先觀察對方語氣判斷其性別，並決定稱呼（客人/小姐/先生），一旦決定，後續對話必須統一。
 `;
 
-
-
 async function callDeepSeek(env: Env, userId: string, userName: string, userMessage: string) {
-  // 1. 確保 User 存在於資料庫
+  // 1. 確保 User 存在
   await env.ciallo_db.prepare(
     `INSERT INTO users (user_id, first_name) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET first_name = ?`
   ).bind(userId, userName, userName).run();
 
-  // 2. 獲取 User 資料
-  const userRecord = await env.ciallo_db.prepare(`SELECT * FROM users WHERE user_id = ?`).bind(userId).first();
-  const affection = userRecord?.affection || 0;
-  const memory = userRecord?.conversation_summary || '你們剛剛認識。';
+  // 2. 獲取 User 資料 (強制轉換型別以便操作)
+  let userRecord: any = await env.ciallo_db.prepare(`SELECT * FROM users WHERE user_id = ?`).bind(userId).first();
 
-  // 3. 獲取短期記憶 (最近 10 條)
+  // 💡 3. 自動行為追蹤與數據更新 (RPG 核心引擎)
+  let affDelta = 0;
+  const txt = userMessage;
+  
+  // 日常加分
+  if (txt.includes("早安") || txt.includes("晚安")) { affDelta += 1; userRecord.check_in_days += 1; }
+  if (txt.includes("可愛") || txt.includes("喜歡") || txt.includes("靚")) affDelta += 2;
+  
+  // 色色計數器
+  if (txt.includes("插") || txt.includes("做愛") || txt.includes("操")) userRecord.sex_count += 1;
+  if (txt.includes("內射") || txt.includes("射進")) userRecord.creampie_count += 1;
+  if (txt.includes("口交") || txt.includes("含")) userRecord.blowjob_count += 1;
+  if (txt.includes("乳交") || txt.includes("波")) userRecord.paizuri_count += 1;
+  if (txt.includes("高潮") || txt.includes("去了")) userRecord.orgasms_given += 1;
+
+  // 計算新好感度 (限制在 0-100)
+  userRecord.affection = Math.min(100, Math.max(0, userRecord.affection + affDelta));
+
+  // 儲存更新後的數據回資料庫
+  await env.ciallo_db.prepare(
+    `UPDATE users SET affection=?, check_in_days=?, sex_count=?, creampie_count=?, blowjob_count=?, paizuri_count=?, orgasms_given=? WHERE user_id=?`
+  ).bind(userRecord.affection, userRecord.check_in_days, userRecord.sex_count, userRecord.creampie_count, userRecord.blowjob_count, userRecord.paizuri_count, userRecord.orgasms_given, userId).run();
+
+  // 4. 動態生成 Prompt
+  const memory = userRecord.conversation_summary || '你們剛剛認識。';
+  const dynamicSystemPrompt = SYSTEM_PROMPT_TEMPLATE
+    .replace('{{user_name}}', userName)
+    .replace('{{affection}}', userRecord.affection.toString())
+    .replace('{{memory}}', memory.toString());
+
+  // 5. 獲取短期記憶
   const { results: recentMsgs } = await env.ciallo_db.prepare(
     `SELECT role, content FROM messages WHERE user_id = ? ORDER BY id DESC LIMIT 10`
   ).bind(userId).all();
-  const history = recentMsgs.reverse(); // 確保順序正確
+  const history = recentMsgs.reverse();
 
-  // 4. 動態生成 System Prompt
-  const dynamicSystemPrompt = SYSTEM_PROMPT_TEMPLATE
-    .replace('{{user_name}}', userName)
-    .replace('{{affection}}', affection.toString())
-    .replace('{{memory}}', memory.toString());
-
-  // 5. 準備發送給 AI 的訊息
+  // 6. 呼叫 API
   const payloadMessage = userMessage + INNER_OS_MARKER;
   const messagesPayload = [
     { role: "system", content: dynamicSystemPrompt },
-    ...history, // 插入歷史紀錄
+    ...history,
     { role: "user", content: payloadMessage }
   ];
 
-  // 6. 呼叫 API
   const response = await fetch("https://api.deepseek.com/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": `Bearer ${env.DEEPSEEK_API_KEY}` },
@@ -134,10 +153,9 @@ async function callDeepSeek(env: Env, userId: string, userName: string, userMess
 
   const data = await response.json() as any;
   if (data.error) throw new Error(data.error.message);
-  
   const aiReply = data.choices[0].message.content;
 
-  // 7. 將這次對話存入資料庫
+  // 7. 儲存對話紀錄
   await env.ciallo_db.prepare(
     `INSERT INTO messages (user_id, role, content) VALUES (?, 'user', ?), (?, 'assistant', ?)`
   ).bind(userId, userMessage, userId, aiReply).run();
@@ -150,44 +168,59 @@ export default {
     const bot = new Bot(env.BOT_TOKEN);
 
     bot.command("start", (ctx) => ctx.reply("Ciallo! 紫羅蘭酒館的莎蘿為您服務哦~"));
-    // 1. 查詢個人狀態面板
-    bot.command("stats", async (ctx) => {
+
+    // 完整 RPG 面板
+    bot.command("profile", async (ctx) => {
       const userId = ctx.message?.from?.id.toString();
       if (!userId) return;
-      const userRecord = await env.ciallo_db.prepare(`SELECT * FROM users WHERE user_id = ?`).bind(userId).first();
-      if (!userRecord) return ctx.reply("你仲未同莎蘿講過嘢，個大腦未有你嘅紀錄呀！");
+      const user = await env.ciallo_db.prepare(`SELECT * FROM users WHERE user_id = ?`).bind(userId).first();
+      if (!user) return ctx.reply("您尚未與莎蘿進行過對話，紫羅蘭酒館目前沒有您的會員紀錄喔！");
+
+      let achievements = [];
+      try { achievements = JSON.parse(user.achievements as string || '[]'); } catch(e) {}
       
-      ctx.reply(`📊 【${userRecord.first_name} 嘅專屬檔案】\n💖 好感度：${userRecord.affection} / 100\n🧠 記憶總結：${userRecord.conversation_summary || '空白'}`);
+      const profileText = `
+      📊 【${user.first_name} 的紫羅蘭專屬檔案】 📊
+      💖 莎蘿好感度：${user.affection} / 100
+      📅 連續打卡：${user.check_in_days} 天
+
+      🔞 【私密互動追蹤】
+      👉 總互動次數：${user.sex_count}
+      💦 內射次數：${user.creampie_count}
+      👄 口交次數：${user.blowjob_count}
+      🍼 乳交次數：${user.paizuri_count}
+      🌟 讓莎蘿高潮次數：${user.orgasms_given}
+
+      🏆 【已解鎖成就】
+      ${achievements.length > 0 ? achievements.map((a: string) => `✨ ${a}`).join('\n') : '暫無解鎖成就... 請繼續努力與莎蘿互動吧！'}
+      `;
+      ctx.reply(profileText);
     });
 
-    // 2. GM 外掛：強制修改好感度 (測試用)
+  // GM 外掛
     bot.command("setaff", async (ctx) => {
       const userId = ctx.message?.from?.id.toString();
-      const args = ctx.match; // 獲取指令後面的數字
+      const args = ctx.match;
       if (!args || isNaN(Number(args))) return ctx.reply("格式錯誤！請輸入數字，例如：/setaff 100");
       
-      const newAff = Number(args);
-      await env.ciallo_db.prepare(`UPDATE users SET affection = ? WHERE user_id = ?`).bind(newAff, userId).run();
-      ctx.reply(`🔧 [GM 外掛生效] 莎蘿對你嘅好感度已經強制鎖定為：${newAff}`);
+      await env.ciallo_db.prepare(`UPDATE users SET affection = ? WHERE user_id = ?`).bind(Number(args), userId).run();
+      ctx.reply(`🔧 [GM 權限生效] 莎蘿對您的好感度已強制鎖定為：${args}`);
     });
 
-    // 3. 物理洗腦：清空近期記憶
+    // 物理洗腦
     bot.command("reset", async (ctx) => {
       const userId = ctx.message?.from?.id.toString();
       await env.ciallo_db.prepare(`DELETE FROM messages WHERE user_id = ?`).bind(userId).run();
-      ctx.reply("🌀 (響指) 莎蘿已經忘記咗最近同你講過嘅所有嘢... 重新開始吧！");
+      ctx.reply("🌀 (響指) 莎蘿已經忘記了最近與您的對話... 讓我們重新開始吧！");
     });
-
+    
     bot.on("message:text", async (ctx) => {
       if (ctx.message.from?.is_bot) return;
 
       if (ctx.chat.type !== "private") {
         const msg = ctx.message;
         const isMentioned = msg.entities?.some(e => e.type === "mention" || e.type === "text_mention");
-        let isTrueReply = false;
-        if (msg.reply_to_message && msg.reply_to_message.message_id !== msg.message_thread_id) {
-            isTrueReply = true;
-        }
+        const isTrueReply = msg.reply_to_message?.from?.id === ctx.me.id;
         if (!isMentioned && !isTrueReply) return;
       }
 
@@ -195,7 +228,6 @@ export default {
         await ctx.replyWithChatAction("typing");
         const userId = ctx.message.from.id.toString();
         const userName = ctx.message.from.first_name || "客人";
-        
         const aiReply = await callDeepSeek(env, userId, userName, ctx.message.text);
         await ctx.reply(aiReply, { reply_parameters: { message_id: ctx.message.message_id } });
       } catch (error) {
