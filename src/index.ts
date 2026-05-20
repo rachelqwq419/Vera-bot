@@ -91,27 +91,37 @@ export default {
 
     bot.command("start", (ctx) => ctx.reply("Ciallo! 莎蘿隨時在這裡哦~ 呀，有什麼可以幫到你呢？"));
 
-    bot.on("message:text", async (ctx) => {
-      // 🚨 防呆 1：無視其他 Bot 的訊息，防止 Bot 互聊引發無限迴圈
+	bot.on("message:text", async (ctx) => {
+      // 1. 防止 Bot 回應自己
       if (ctx.message.from?.is_bot) return;
 
-      // 🚨 防呆 2：如果在群組，只有被提及（Mention）或回覆時才作反應
+      // 2. 處理群組內的進階邏輯 (避免觸發話題回覆 Bug)
       if (ctx.chat.type !== "private") {
-        const isMentioned = ctx.message.entities?.some(e => e.type === "mention" || e.type === "text_mention");
-        const isReply = ctx.message.reply_to_message != null;
+        const msg = ctx.message;
+        const isMentioned = msg.entities?.some(e => e.type === "mention" || e.type === "text_mention");
         
-        if (!isMentioned && !isReply) {
-          return; // 唔係搵莎蘿嘅，直接 Ignore
+        // 【群友建議的進階判斷】
+        // 檢查是否真係 Reply，且確保不是話題的起始訊息
+        let isTrueReply = false;
+        if (msg.reply_to_message) {
+            const replyMsg = msg.reply_to_message;
+            // 如果被回覆訊息的 ID 和話題 ID 不相等，才判定為真實回覆
+            if (replyMsg.message_id !== msg.message_thread_id) {
+                isTrueReply = true;
+            }
         }
+
+        // 如果既沒有 @ 提及，也不是真正的 Reply，就直接無視
+        if (!isMentioned && !isTrueReply) return;
       }
 
+      // 3. 處理 AI 邏輯 (保持不變)
       try {
         await ctx.replyWithChatAction("typing");
         const aiReply = await callDeepSeek(env.DEEPSEEK_API_KEY, ctx.message.text);
-        await ctx.reply(aiReply);
+        await ctx.reply(aiReply, { reply_parameters: { message_id: ctx.message.message_id } });
       } catch (error) {
         console.error("DeepSeek API 錯誤:", error);
-        // 🚨 防呆 3：【極度重要】出錯時默默失敗，千萬不要回覆錯誤訊息，否則會再次引發 Telegram 重試地獄！
       }
     });
 
