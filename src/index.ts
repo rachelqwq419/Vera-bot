@@ -131,10 +131,12 @@ async function callDeepSeek(env: Env, userId: string, userName: string, userMess
   // 5. 呼叫 API
   const payloadMessage = formattedUserMessage + INNER_OS_MARKER;
   const messagesPayload = [
-    { role: "system", content: dynamicSystemPrompt },
-    ...history,
-    { role: "user", content: payloadMessage }
-  ];
+  { role: "system", content: dynamicSystemPrompt },
+  // 這裡我們不只傳遞最後 15 條，還要加入一個「場景快照」
+  { role: "system", content: `【當前場景狀態】：現在群組裡有：${userName} (你正在對話的客人) 以及其他潛在客人。莎蘿，請務必記住，群組內所有人的發言都是同時存在的，不要遺漏任何一個人的互動！` },
+  ...history,
+  { role: "user", content: payloadMessage }
+];
 
   const response = await fetch("https://api.deepseek.com/chat/completions", {
     method: "POST",
