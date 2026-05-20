@@ -150,7 +150,7 @@ async function callDeepSeek(env: Env, userId: string, userName: string, userMess
   const response = await fetch("https://api.deepseek.com/chat/completions", {
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": `Bearer ${env.DEEPSEEK_API_KEY}` },
-    body: JSON.stringify({ model: "deepseek-reasoner", messages: messagesPayload, temperature: 0.85 })
+    body: JSON.stringify({ model: "deepseek-v4-flash", messages: messagesPayload, temperature: 0.85 })
   });
 
   const data = await response.json() as any;
@@ -170,18 +170,33 @@ async function callDeepSeek(env: Env, userId: string, userName: string, userMess
     if (act in s) (s as any)[act]++;
   }
 
-  let finalReplyToUser = aiReply.replace(/\[(AFF|SEX):.*?\]/gi, '').trim();
+// 🧹 移除 [AFF]、[SEX] 標籤，同埋強制過濾 <think> 思考過程
+  let finalReplyToUser = aiReply
+    .replace(/<think>[\s\S]*?<\/think>/gi, '') // 👈 新增呢段，確保玩家見唔到思考過程
+    .replace(/\[(AFF|SEX):.*?\]/gi, '')
+    .trim();
 
-  // 更新記憶體中的數值準備檢測成就
-  userRecord.affection = Math.min(100, Math.max(0, userRecord.affection + affDelta));
-  userRecord.check_in_days += (userMessage.includes("早安") || userMessage.includes("晚安")) ? 1 : 0;
+// 安全更新記憶體中的數值準備檢測成就 (防止 null 變成 NaN)
+  userRecord.affection = Math.min(100, Math.max(0, (userRecord.affection || 0) + affDelta));
+  userRecord.check_in_days = (userRecord.check_in_days || 0) + ((userMessage.includes("早安") || userMessage.includes("晚安")) ? 1 : 0);
   userRecord.unsummarized_count = (userRecord.unsummarized_count || 0) + 1;
-  userRecord.sex_count += s.sex; userRecord.creampie_count += s.creampie; userRecord.paizuri_count += s.paizuri;
-  userRecord.blowjob_count += s.blowjob; userRecord.swallow_count += s.swallow; userRecord.handjob_count += s.handjob;
-  userRecord.footjob_count += s.footjob; userRecord.anal_count += s.anal; userRecord.kiss_count += s.kiss;
-  userRecord.cum_on_face += s.cum_face; userRecord.cum_on_tits += s.cum_tits; userRecord.orgasms_given += s.orgasm;
-  userRecord.public_sex_count += s.public; userRecord.hair_pull_count += s.hair_pull; userRecord.apron_sex_count += s.apron;
-  userRecord.submissive_count += s.submissive;
+  
+  userRecord.sex_count = (userRecord.sex_count || 0) + s.sex; 
+  userRecord.creampie_count = (userRecord.creampie_count || 0) + s.creampie; 
+  userRecord.paizuri_count = (userRecord.paizuri_count || 0) + s.paizuri;
+  userRecord.blowjob_count = (userRecord.blowjob_count || 0) + s.blowjob; 
+  userRecord.swallow_count = (userRecord.swallow_count || 0) + s.swallow; 
+  userRecord.handjob_count = (userRecord.handjob_count || 0) + s.handjob;
+  userRecord.footjob_count = (userRecord.footjob_count || 0) + s.footjob; 
+  userRecord.anal_count = (userRecord.anal_count || 0) + s.anal; 
+  userRecord.kiss_count = (userRecord.kiss_count || 0) + s.kiss;
+  userRecord.cum_on_face = (userRecord.cum_on_face || 0) + s.cum_face; 
+  userRecord.cum_on_tits = (userRecord.cum_on_tits || 0) + s.cum_tits; 
+  userRecord.orgasms_given = (userRecord.orgasms_given || 0) + s.orgasm;
+  userRecord.public_sex_count = (userRecord.public_sex_count || 0) + s.public; 
+  userRecord.hair_pull_count = (userRecord.hair_pull_count || 0) + s.hair_pull; 
+  userRecord.apron_sex_count = (userRecord.apron_sex_count || 0) + s.apron;
+  userRecord.submissive_count = (userRecord.submissive_count || 0) + s.submissive;
 
   // 🏆 執行成就判定
   let currentAchievements: string[];
@@ -265,12 +280,22 @@ ${achievements.length > 0 ? achievements.map((a: string) => `✨ ${a}`).join('\n
       ctx.reply(profileText);
     });
 
-    bot.command("setaff", async (ctx) => {
+// 真・GM 數值外掛 (測試成就廣播專用)
+    bot.command("setstat", async (ctx) => {
       const userId = ctx.message?.from?.id.toString();
-      const args = ctx.match;
-      if (!args || isNaN(Number(args))) return ctx.reply("格式錯誤！請輸入數字，例如：/setaff 100");
-      await env.ciallo_db.prepare(`UPDATE users SET affection = ? WHERE user_id = ?`).bind(Number(args), userId).run();
-      ctx.reply(`🔧 [GM 權限生效] 莎蘿對您的好感度已強制鎖定為：${args}`);
+      const args = ctx.match?.split(" "); 
+      if (!args || args.length !== 2) return ctx.reply("格式錯誤！請輸入：/setstat <欄位名> <數值> (例如: /setstat kiss_count 1)");
+      
+      const column = args[0];
+      const value = Number(args[1]);
+      if (isNaN(value)) return ctx.reply("數值必須係數字！");
+
+      try {
+        await env.ciallo_db.prepare(`UPDATE users SET ${column} = ? WHERE user_id = ?`).bind(value, userId).run();
+        ctx.reply(`🔧 [GM 外掛] 成功將您的 ${column} 數值修改為：${value}。請發送任意訊息觸發成就結算！`);
+      } catch (error) {
+        ctx.reply(`❌ 修改失敗，請檢查欄位名稱是否正確。`);
+      }
     });
 
     bot.command("reset", async (ctx) => {
