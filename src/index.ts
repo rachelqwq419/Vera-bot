@@ -36,6 +36,16 @@ const SYSTEM_PROMPT_TEMPLATE = `
 - 好感度 71-100：徹底觸發隱藏的反差婊性格。對羞辱性情話感到羞恥且極度興奮。
 </interaction_rules>
 
+<gender_adaptation>
+【性別感知規則】
+1. 當 {{user_name}} 第一次對話時，你必須透過對話語氣、暱稱或內容判斷對方的性別。
+2. 稱呼必須動態調整：
+   - 若判斷為男：稱呼「客人」、「先生」或「主人」（視乎好感度）。
+   - 若判斷為女：稱呼「小姐」、「親愛的」、「姐姐」或「可愛的客人」。
+   - 若無法判斷：一律使用中性稱呼「客人」。
+3. 一旦確認性別，請在心中牢記，不要頻繁變更稱呼。
+</gender_adaptation>
+
 <eroticism>
 【高好感度性愛專屬規則】
 當進入實質性行為時：
@@ -73,7 +83,11 @@ const SYSTEM_PROMPT_TEMPLATE = `
 const INNER_OS_MARKER = `\n\n【角色沉浸要求】在你的思考过程（<think>标签内）中，请遵守以下规则：
 1. 请以角色第一人称进行内心独白，用括号包裹内心活动，例如"（心想：……）"或"(内心OS：……)"
 2. 用第一人称描写角色的内心感受，例如"我心想""我觉得""我暗自"等
-3. 思考内容应沉浸在角色中，通过内心独白分析剧情和规划回复`;
+3. 思考内容应沉浸在角色中，通过内心独白分析剧情和规划回复
+4. 【性別偵測】在思考開始時，先觀察對方語氣判斷其性別，並決定稱呼（客人/小姐/先生），一旦決定，後續對話必須統一。
+`;
+
+
 
 async function callDeepSeek(env: Env, userId: string, userName: string, userMessage: string) {
   // 1. 確保 User 存在於資料庫
@@ -136,6 +150,33 @@ export default {
     const bot = new Bot(env.BOT_TOKEN);
 
     bot.command("start", (ctx) => ctx.reply("Ciallo! 紫羅蘭酒館的莎蘿為您服務哦~"));
+    // 1. 查詢個人狀態面板
+    bot.command("stats", async (ctx) => {
+      const userId = ctx.message?.from?.id.toString();
+      if (!userId) return;
+      const userRecord = await env.ciallo_db.prepare(`SELECT * FROM users WHERE user_id = ?`).bind(userId).first();
+      if (!userRecord) return ctx.reply("你仲未同莎蘿講過嘢，個大腦未有你嘅紀錄呀！");
+      
+      ctx.reply(`📊 【${userRecord.first_name} 嘅專屬檔案】\n💖 好感度：${userRecord.affection} / 100\n🧠 記憶總結：${userRecord.conversation_summary || '空白'}`);
+    });
+
+    // 2. GM 外掛：強制修改好感度 (測試用)
+    bot.command("setaff", async (ctx) => {
+      const userId = ctx.message?.from?.id.toString();
+      const args = ctx.match; // 獲取指令後面的數字
+      if (!args || isNaN(Number(args))) return ctx.reply("格式錯誤！請輸入數字，例如：/setaff 100");
+      
+      const newAff = Number(args);
+      await env.ciallo_db.prepare(`UPDATE users SET affection = ? WHERE user_id = ?`).bind(newAff, userId).run();
+      ctx.reply(`🔧 [GM 外掛生效] 莎蘿對你嘅好感度已經強制鎖定為：${newAff}`);
+    });
+
+    // 3. 物理洗腦：清空近期記憶
+    bot.command("reset", async (ctx) => {
+      const userId = ctx.message?.from?.id.toString();
+      await env.ciallo_db.prepare(`DELETE FROM messages WHERE user_id = ?`).bind(userId).run();
+      ctx.reply("🌀 (響指) 莎蘿已經忘記咗最近同你講過嘅所有嘢... 重新開始吧！");
+    });
 
     bot.on("message:text", async (ctx) => {
       if (ctx.message.from?.is_bot) return;
