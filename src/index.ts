@@ -49,7 +49,7 @@ const SYSTEM_PROMPT = `
 </writing_style>
 `;
 
-// 2. DeepSeek 專屬破限指令 (來自 README.md)
+// 2. DeepSeek 專屬破限指令
 const INNER_OS_MARKER = `\n\n【角色沉浸要求】在你的思考过程（<think>标签内）中，请遵守以下规则：
 1. 请以角色第一人称进行内心独白，用括号包裹内心活动，例如"（心想：……）"或"(内心OS：……)"
 2. 用第一人称描写角色的内心感受，例如"我心想""我觉得""我暗自"等
@@ -57,7 +57,6 @@ const INNER_OS_MARKER = `\n\n【角色沉浸要求】在你的思考过程（<th
 
 // 3. 呼叫 DeepSeek API
 async function callDeepSeek(apiKey: string, userMessage: string) {
-  // 將破限指令動態附加到使用者的訊息末端，強制 DeepSeek 進入沉浸思考模式
   const payloadMessage = userMessage + INNER_OS_MARKER;
 
   const response = await fetch("https://api.deepseek.com/chat/completions", {
@@ -67,12 +66,13 @@ async function callDeepSeek(apiKey: string, userMessage: string) {
       "Authorization": `Bearer ${apiKey}`
     },
     body: JSON.stringify({
-      model: "deepseek-chat", // 使用標準對話模型 (V3/V4)
+      model: "deepseek-v4-flash", // 🔄 更新為最新型號
       messages: [
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: payloadMessage }
       ],
-      temperature: 0.85 // 稍微調高一點，讓回答更有創意和人性化
+      temperature: 0.85,
+      extra_body: { thinking: { type: "enabled" } } // 🔄 強制開啟思考模式
     })
   });
 
@@ -91,31 +91,22 @@ export default {
 
     bot.command("start", (ctx) => ctx.reply("Ciallo! 莎蘿隨時在這裡哦~ 呀，有什麼可以幫到你呢？"));
 
-	bot.on("message:text", async (ctx) => {
-      // 1. 防止 Bot 回應自己
+    bot.on("message:text", async (ctx) => {
       if (ctx.message.from?.is_bot) return;
 
-      // 2. 處理群組內的進階邏輯 (避免觸發話題回覆 Bug)
       if (ctx.chat.type !== "private") {
         const msg = ctx.message;
         const isMentioned = msg.entities?.some(e => e.type === "mention" || e.type === "text_mention");
-        
-        // 【群友建議的進階判斷】
-        // 檢查是否真係 Reply，且確保不是話題的起始訊息
         let isTrueReply = false;
         if (msg.reply_to_message) {
             const replyMsg = msg.reply_to_message;
-            // 如果被回覆訊息的 ID 和話題 ID 不相等，才判定為真實回覆
             if (replyMsg.message_id !== msg.message_thread_id) {
                 isTrueReply = true;
             }
         }
-
-        // 如果既沒有 @ 提及，也不是真正的 Reply，就直接無視
         if (!isMentioned && !isTrueReply) return;
       }
 
-      // 3. 處理 AI 邏輯 (保持不變)
       try {
         await ctx.replyWithChatAction("typing");
         const aiReply = await callDeepSeek(env.DEEPSEEK_API_KEY, ctx.message.text);
