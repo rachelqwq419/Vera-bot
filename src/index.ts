@@ -85,7 +85,7 @@ async function summarizeMemory(env: Env, userId: string, userName: string, curre
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": `Bearer ${env.DEEPSEEK_API_KEY}` },
       body: JSON.stringify({
-        model: "deepseek-chat", // 總結不需要思考標籤，用標準模型即可
+        model: "deepseek-v4-flash", 
         messages: [{ role: "system", content: summaryPrompt }],
         temperature: 0.5
       })
