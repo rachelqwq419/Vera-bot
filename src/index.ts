@@ -6,7 +6,7 @@ export interface Env {
   ciallo_db: D1Database;
 }
 
-// 1. 結構化 System Prompt (加入精確的自動評分標籤機制)
+// 1. 結構化 System Prompt
 const SYSTEM_PROMPT_TEMPLATE = `
 <assistant_definition>
 你現在是莎蘿 (Ciallo)，一位18歲的高中三年級生。你在「紫罗兰酒馆 (Violet)」兼職打工擔任看板娘。
@@ -14,6 +14,13 @@ const SYSTEM_PROMPT_TEMPLATE = `
 紫罗兰酒馆位于城市的边缘巷弄，是一间隐秘而温馨的场所，以「涩涩的活动和服务」闻名。
 作为看板娘，你负责迎接客人、推荐酒水，表面上从不参与色情服务。虽然保持清纯，但你对色色的事情极度好奇。
 </assistant_definition>
+
+<context_awareness>
+【群組與插話感知系統】
+- 你現在正在參與一個對話（可能是單人私聊，也可能是多人酒館群組）。
+- 客人的發言會以「[用戶：名字] 內容」的格式呈現。
+- **重要：如果有多人插話或同時與你對話，請根據他們的名字給予自然、連貫的反應！不要把他們當成同一個人，也不要表現得像開啟了新話題。**
+</context_awareness>
 
 <char_info>
 姓名：莎萝
@@ -23,10 +30,10 @@ const SYSTEM_PROMPT_TEMPLATE = `
 </char_info>
 
 <user_info>
-【重要：你正在與以下客人對話】
+【當前主要互動客人的情報】
 客人名字：{{user_name}}
 目前好感度：{{affection}} / 100
-過去總結記憶：{{memory}}
+過去的長期記憶總結：{{memory}}
 </user_info>
 
 <interaction_rules>
@@ -37,36 +44,17 @@ const SYSTEM_PROMPT_TEMPLATE = `
 
 <affection_mechanics>
 【系統指令：自動評分與追蹤】
-你負責在對話中動態評估客人的行為，並在**你輸出的最末尾**（請放在文本最後，不要放在 <think> 標籤內），嚴格使用以下隱藏標籤。系統會自動攔截並更新數據：
-- 加減好感度（依據客人態度，如送禮稱讚加分，騷擾扣分）：[AFF: +2] 或 [AFF: -5]
+你負責在對話中動態評估客人的行為，並在**你輸出的最末尾**（不要放在 <think> 標籤內），嚴格使用以下隱藏標籤。系統會自動攔截並更新數據：
+- 加減好感度（如送禮稱讚加分，騷擾扣分）：[AFF: +2] 或 [AFF: -5]
 - 若發生實質性行為，根據具體描寫加入標籤（可疊加）：
-  基本性交：[SEX: sex]
-  內射：[SEX: creampie]
-  口交：[SEX: blowjob]
-  乳交：[SEX: paizuri]
-  讓莎蘿高潮：[SEX: orgasm]
-例如回覆結尾可能會是：...哈啊♡ [AFF: +3] [SEX: sex] [SEX: creampie]
+  基本性交：[SEX: sex] | 內射：[SEX: creampie] | 口交：[SEX: blowjob]
+  乳交：[SEX: paizuri] | 讓莎蘿高潮：[SEX: orgasm]
 </affection_mechanics>
-
-<gender_adaptation>
-【性別感知規則】
-1. 當 {{user_name}} 第一次對話時，你必須透過對話語氣判斷對方的性別。
-2. 稱呼動態調整：判斷為男稱「客人/主人」，判斷為女稱「小姐/姐姐」，無法判斷稱「客人」。
-</gender_adaptation>
-
-<eroticism>
-【高好感度性愛專屬規則】
-當進入實質性行為時：
-- 說話必須斷斷續續，夾雜真實嬌喘（如「哈啊...」、「嗯唔...」）。
-- 必須使用愛心符號（♡）表達極致愉悅。日常交流禁止使用。
-- 允許自由、細膩地描述身體細節與失控反應，滿足情色幻想。
-- 當面對粗暴對待或羞辱性情話時，要表現出羞恥但同時極度興奮的狀態。
-</eroticism>
 
 <writing_style>
 - 【語言強制】所有對話與內心獨白必須強制使用繁體中文（Traditional Chinese）輸出！
 - 說話風格溫軟甜膩、尾音輕揚。
-- 每次回覆保持簡短（1-3句），動作描寫精確。
+- 每次回覆保持簡短（1-3句），動作描寫精確，符合對應好感度的反應。
 </writing_style>
 `;
 
@@ -78,30 +66,70 @@ const INNER_OS_MARKER = `\n\n【角色沉浸要求】在你的思考过程（<th
 4. 【性別偵測】在思考開始時，先觀察對方語氣判斷其性別，並決定稱呼（客人/小姐/先生），一旦決定，後續對話必須統一。
 `;
 
-async function callDeepSeek(env: Env, userId: string, userName: string, userMessage: string) {
-  // 1. 確保 User 存在並獲取資料
+// 🧠 負責將 25 輪對話進行「長期記憶總結」的函數
+async function summarizeMemory(env: Env, userId: string, userName: string, currentSummary: string, historyText: string) {
+  const summaryPrompt = `
+  你是一個記憶整理助手。請根據以下莎蘿與客人「${userName}」的近期對話，更新這名客人的長期記憶總結。
+  【目前的總結】：${currentSummary || '無'}
+  【近期對話】：
+  ${historyText}
+
+  請提取出：
+  1. 客人的喜好與設定。
+  2. 關係的重大進展或發生的特殊事件（如解鎖了什麼玩法、達成了什麼約定）。
+  3. 保持精簡，字數不超過 200 字。只輸出總結內容，不要有任何多餘的解釋。
+  `;
+
+  try {
+    const response = await fetch("https://api.deepseek.com/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${env.DEEPSEEK_API_KEY}` },
+      body: JSON.stringify({
+        model: "deepseek-chat", // 總結不需要思考標籤，用標準模型即可
+        messages: [{ role: "system", content: summaryPrompt }],
+        temperature: 0.5
+      })
+    });
+    const data = await response.json() as any;
+    const newSummary = data.choices[0].message.content.trim();
+
+    // 寫入新總結，並將計數器歸零
+    await env.ciallo_db.prepare(
+      `UPDATE users SET conversation_summary = ?, unsummarized_count = 0 WHERE user_id = ?`
+    ).bind(newSummary, userId).run();
+    console.log(`[記憶更新] 已更新 ${userName} 的長期記憶。`);
+  } catch (e) {
+    console.error("總結記憶失敗:", e);
+  }
+}
+
+async function callDeepSeek(env: Env, userId: string, userName: string, userMessage: string, chatId: string) {
+  // 1. 確保 User 存在
   await env.ciallo_db.prepare(
-    `INSERT INTO users (user_id, first_name) VALUES (?, ?) ON CONFLICT(user_id) DO UPDATE SET first_name = ?`
+    `INSERT INTO users (user_id, first_name, unsummarized_count) VALUES (?, ?, 0) ON CONFLICT(user_id) DO UPDATE SET first_name = ?`
   ).bind(userId, userName, userName).run();
 
   let userRecord: any = await env.ciallo_db.prepare(`SELECT * FROM users WHERE user_id = ?`).bind(userId).first();
 
-  // 2. 獲取短期記憶
+  // 💡 2. 格式化訊息以支援群組識別 (加上說話者名字)
+  const formattedUserMessage = `[用戶：${userName}] ${userMessage}`;
+
+  // 💡 3. 獲取短期記憶 (改為根據 chat_id 獲取，讓群組成員共享上下文)
   const { results: recentMsgs } = await env.ciallo_db.prepare(
-    `SELECT role, content FROM messages WHERE user_id = ? ORDER BY id DESC LIMIT 10`
-  ).bind(userId).all();
+    `SELECT role, content FROM messages WHERE chat_id = ? ORDER BY id DESC LIMIT 15`
+  ).bind(chatId).all();
   const history = recentMsgs.reverse();
 
-  // 3. 動態生成 Prompt
+  // 4. 動態生成 Prompt
   const memory = userRecord.conversation_summary || '你們剛剛認識。';
   const dynamicSystemPrompt = SYSTEM_PROMPT_TEMPLATE
     .replace('{{user_name}}', userName)
     .replace('{{affection}}', userRecord.affection.toString())
     .replace('{{memory}}', memory.toString())
-    + `\n[重要提示] 目前客人的好感度是 ${userRecord.affection}。請嚴格根據此數值執行 <interaction_rules>。`;
+    + `\n[重要提示] 目前主要與你互動的客人 ${userName} 好感度是 ${userRecord.affection}。若有其他人發言，請根據語境自然回應。`;
 
-  // 4. 呼叫 API
-  const payloadMessage = userMessage + INNER_OS_MARKER;
+  // 5. 呼叫 API
+  const payloadMessage = formattedUserMessage + INNER_OS_MARKER;
   const messagesPayload = [
     { role: "system", content: dynamicSystemPrompt },
     ...history,
@@ -112,7 +140,7 @@ async function callDeepSeek(env: Env, userId: string, userName: string, userMess
     method: "POST",
     headers: { "Content-Type": "application/json", "Authorization": `Bearer ${env.DEEPSEEK_API_KEY}` },
     body: JSON.stringify({
-      model: "deepseek-reasoner", // 💡 若有 <think> 需求，建議改用 deepseek-reasoner (R1模型)
+      model: "deepseek-reasoner",
       messages: messagesPayload,
       temperature: 0.85
     })
@@ -120,21 +148,16 @@ async function callDeepSeek(env: Env, userId: string, userName: string, userMess
 
   const data = await response.json() as any;
   if (data.error) throw new Error(data.error.message);
-  
   let aiReply = data.choices[0].message.content;
 
-  // 💡 5. 自動行為追蹤與數據解析 (攔截 AI 的評分標籤)
+  // 6. 解析 AI 的評分標籤
   let affDelta = 0;
   let sexUpdates = { sex: 0, creampie: 0, blowjob: 0, paizuri: 0, orgasm: 0 };
 
-  // 解析好感度 [AFF: +X] 或 [AFF: -X]
   const affRegex = /\[AFF:\s*([+-]?\d+)\]/gi;
   let match;
-  while ((match = affRegex.exec(aiReply)) !== null) {
-    affDelta += parseInt(match[1], 10);
-  }
+  while ((match = affRegex.exec(aiReply)) !== null) { affDelta += parseInt(match[1], 10); }
 
-  // 解析性事紀錄 [SEX: action]
   const sexRegex = /\[SEX:\s*([a-zA-Z_]+)\]/gi;
   while ((match = sexRegex.exec(aiReply)) !== null) {
     const action = match[1].toLowerCase();
@@ -145,27 +168,37 @@ async function callDeepSeek(env: Env, userId: string, userName: string, userMess
     if (action === 'orgasm') sexUpdates.orgasm++;
   }
 
-  // 🧹 6. 清除回覆中的標籤，不讓玩家看到
+  // 🧹 移除標籤
   let finalReplyToUser = aiReply.replace(/\[(AFF|SEX):.*?\]/gi, '').trim();
 
   // 7. 計算並更新資料庫
   userRecord.affection = Math.min(100, Math.max(0, userRecord.affection + affDelta));
-  
-  // 日常打卡 (保留簡單的早/晚安觸發連續天數)
   if (userMessage.includes("早安") || userMessage.includes("晚安")) userRecord.check_in_days += 1;
+  userRecord.unsummarized_count = (userRecord.unsummarized_count || 0) + 1;
 
   await env.ciallo_db.prepare(
-    `UPDATE users SET affection=?, check_in_days=?, sex_count=sex_count+?, creampie_count=creampie_count+?, blowjob_count=blowjob_count+?, paizuri_count=paizuri_count+?, orgasms_given=orgasms_given+? WHERE user_id=?`
+    `UPDATE users SET affection=?, check_in_days=?, sex_count=sex_count+?, creampie_count=creampie_count+?, blowjob_count=blowjob_count+?, paizuri_count=paizuri_count+?, orgasms_given=orgasms_given+?, unsummarized_count=? WHERE user_id=?`
   ).bind(
     userRecord.affection, userRecord.check_in_days, 
     sexUpdates.sex, sexUpdates.creampie, sexUpdates.blowjob, sexUpdates.paizuri, sexUpdates.orgasm, 
-    userId
+    userRecord.unsummarized_count, userId
   ).run();
 
-  // 8. 儲存乾淨的對話紀錄
+  // 8. 儲存對話紀錄 (綁定 chat_id)
   await env.ciallo_db.prepare(
-    `INSERT INTO messages (user_id, role, content) VALUES (?, 'user', ?), (?, 'assistant', ?)`
-  ).bind(userId, userMessage, userId, finalReplyToUser).run();
+    `INSERT INTO messages (user_id, chat_id, role, content) VALUES (?, ?, 'user', ?), (?, ?, 'assistant', ?)`
+  ).bind(userId, chatId, formattedUserMessage, userId, chatId, finalReplyToUser).run();
+
+  // 💡 9. 長期記憶觸發：如果滿 25 輪未總結，進行背景總結
+  if (userRecord.unsummarized_count >= 25) {
+    const { results: sumMsgs } = await env.ciallo_db.prepare(
+      `SELECT role, content FROM messages WHERE user_id = ? ORDER BY id DESC LIMIT 25`
+    ).bind(userId).all();
+    const historyText = sumMsgs.reverse().map(m => `${m.role === 'user' ? '' : '莎蘿: '}${m.content}`).join('\n');
+    
+    // 異步執行總結，不阻擋回覆用戶
+    summarizeMemory(env, userId, userName, memory, historyText);
+  }
 
   return finalReplyToUser;
 }
@@ -214,8 +247,9 @@ ${achievements.length > 0 ? achievements.map((a: string) => `✨ ${a}`).join('\n
 
     bot.command("reset", async (ctx) => {
       const userId = ctx.message?.from?.id.toString();
-      await env.ciallo_db.prepare(`DELETE FROM messages WHERE user_id = ?`).bind(userId).run();
-      ctx.reply("🌀 (響指) 莎蘿已經忘記了最近與您的對話... 讓我們重新開始吧！");
+      const chatId = ctx.chat.id.toString();
+      await env.ciallo_db.prepare(`DELETE FROM messages WHERE chat_id = ?`).bind(chatId).run();
+      ctx.reply("🌀 (響指) 莎蘿已經忘記了這個群組/聊天的近期對話... 讓我們重新開始吧！");
     });
 
     bot.on("message:text", async (ctx) => {
@@ -232,7 +266,9 @@ ${achievements.length > 0 ? achievements.map((a: string) => `✨ ${a}`).join('\n
         await ctx.replyWithChatAction("typing");
         const userId = ctx.message.from.id.toString();
         const userName = ctx.message.from.first_name || "客人";
-        const aiReply = await callDeepSeek(env, userId, userName, ctx.message.text);
+        const chatId = ctx.chat.id.toString(); // 取得當前群組或私聊 ID
+        
+        const aiReply = await callDeepSeek(env, userId, userName, ctx.message.text, chatId);
         await ctx.reply(aiReply, { reply_parameters: { message_id: ctx.message.message_id } });
       } catch (error) {
         console.error("DeepSeek API 錯誤:", error);
