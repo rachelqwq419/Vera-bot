@@ -129,22 +129,6 @@ export function registerHandlers(bot: Bot, env: Env, execCtx: ExecutionContext):
       let achievements: string[] = [];
       try { achievements = JSON.parse(user.achievements || '[]'); } catch (_e) { /* ignore */ }
 
-      let gifts: string[] = [];
-      try { gifts = JSON.parse(user.gifts_received || '[]'); } catch (_e) { /* ignore */ }
-
-      const countItems = (arr: string[]) => {
-        const counts: Record<string, number> = {};
-        arr.forEach(i => counts[i] = (counts[i] || 0) + 1);
-        return Object.keys(counts).length > 0
-          ? Object.entries(counts).map(([k, v]) => `${k}x${v}`).join(', ')
-          : '無';
-      };
-
-      let likes: string[] = [];
-      try { likes = JSON.parse(user.user_likes || '[]'); } catch (_e) { /* ignore */ }
-      let dislikes: string[] = [];
-      try { dislikes = JSON.parse(user.user_dislikes || '[]'); } catch (_e) { /* ignore */ }
-
       const favoritePlay = computeFavoritePlay(user);
       const title = getAffectionTitle(user.affection || 0);
       const moodKey = (user.mood || "HAPPY") as Mood;
@@ -160,12 +144,8 @@ export function registerHandlers(bot: Bot, env: Env, execCtx: ExecutionContext):
 😶 莎蘿今日心情：${moodInfo.emoji} ${moodInfo.label}
 📅 互動天數：${user.check_in_days || 0} 天
 
-🎁 【情報與羈絆】
-🌹 送給莎蘿的禮物：${countItems(gifts)}
-👍 你的喜好：${likes.join(', ') || '無'}
-👎 你的厭惡：${dislikes.join(', ') || '無'}
-
 🔞 【基本互動追蹤】
+
 👉 總性交次數：${user.sex_count || 0} | 💋 接吻次數：${user.kiss_count || 0}
 💦 內射次數：${user.creampie_count || 0} | 👄 口交次數：${user.blowjob_count || 0}
 🍼 乳交次數：${user.paizuri_count || 0} | 👅 吞精次數：${user.swallow_count || 0}
@@ -192,15 +172,26 @@ ${specialMoments.length > 0 ? `📜 【特殊時刻】（最近 ${Math.min(3, sp
     }
   });
 
-  // ── /setstat (GM only) ──
+  // ── /setstat (GM only, 支援改自己或 reply 改別人) ──
   bot.command("setstat", async (ctx) => {
-    const userId = ctx.message?.from?.id.toString();
-    if (userId !== ADMIN_USER_ID) return ctx.reply("你不是 GM，無法使用這個指令。");
+    const adminId = ctx.message?.from?.id.toString();
+    if (adminId !== ADMIN_USER_ID) return ctx.reply("你不是 GM，無法使用這個指令。");
+
+    // 🎯 薇拉新增：判斷目標對象
+    let targetUserId = adminId; // 預設改自己
+    let targetName = ctx.message?.from?.first_name || "你";
+
+    // 如果你有 reply 別人的訊息，就把目標換成那個客人！
+    const targetMsg = ctx.message?.reply_to_message;
+    if (targetMsg?.from?.id) {
+      targetUserId = targetMsg.from.id.toString();
+      targetName = targetMsg.from.first_name || "該客人";
+    }
 
     const args = ctx.match?.split(" ");
     if (!args || args.length !== 2) {
       return ctx.reply(
-        `格式錯誤。請輸入：/setstat <欄位名> <數值>\n可用欄位：${ALLOWED_SETSTAT_COLUMNS.join(', ')}`
+        `格式錯誤。請輸入：/setstat <欄位名> <數值>\n若要修改他人，請 Reply 該客人的訊息。\n可用欄位：${ALLOWED_SETSTAT_COLUMNS.join(', ')}`
       );
     }
 
@@ -208,37 +199,31 @@ ${specialMoments.length > 0 ? `📜 【特殊時刻】（最近 ${Math.min(3, sp
     const value = Number(args[1]);
     if (isNaN(value)) return ctx.reply("數值必須是數字。");
     if (!ALLOWED_SETSTAT_COLUMNS.includes(column)) {
-      return ctx.reply(`不允許直接修改欄位「${column}」。可用欄位：${ALLOWED_SETSTAT_COLUMNS.join(', ')}`);
+      return ctx.reply(`不允許直接修改欄位「${column}」。`);
     }
 
     try {
       const before = await env.ciallo_db.prepare(
         `SELECT ${column} FROM users WHERE user_id = ?`
-      ).bind(userId).first() as any;
+      ).bind(targetUserId).first() as any;
 
+      // 更新目標客人的數據
       await env.ciallo_db.prepare(
         `UPDATE users SET ${column} = ? WHERE user_id = ?`
-      ).bind(value, userId).run();
+      ).bind(value, targetUserId).run();
 
       const oldVal = before?.[column] ?? 'null';
       execCtx.waitUntil(logAdminAction(
-        env, userId!, userId!, 'setstat',
+        env, adminId!, targetUserId!, 'setstat',
         `column=${column}, old=${oldVal}, new=${value}`
       ));
 
       await ctx.reply(
-        `🔧 [GM] 已成功將 ${column} 從 ${oldVal} 修改為 ${value}。發送任意訊息可觸發成就結算。`
+        `🔧 [GM] 已成功將 ${targetName} 的 ${column} 從 ${oldVal} 修改為 ${value}。`
       );
     } catch (error) {
-      await ctx.reply("修改失敗，請檢查欄位名稱是否正確。");
+      await ctx.reply("修改失敗，請檢查欄位名稱是否正確或該客人是否已註冊。");
     }
-  });
-
-  // ── /reset ──
-  bot.command("reset", async (ctx) => {
-    const chatId = ctx.chat.id.toString();
-    await env.ciallo_db.prepare(`DELETE FROM messages WHERE chat_id = ?`).bind(chatId).run();
-    await ctx.reply("（輕輕打了一個響指）莎蘿已經忘記了這個群組的近期對話，讓我們重新開始吧。");
   });
 
   // ── /resetuser (GM only, reply 目標用戶即可清零) ──
@@ -403,14 +388,6 @@ ${specialMoments.length > 0 ? `📜 【特殊時刻】（最近 ${Math.min(3, sp
   // ── 一般文字訊息 ──
   bot.on("message:text", async (ctx) => {
     if (ctx.message.from?.is_bot) return;
-
-    // 群組模式：必須 @mention 或 reply 莎蘿才回應
-    if (ctx.chat.type !== "private") {
-      const msg = ctx.message;
-      const isMentioned = msg.entities?.some(e => e.type === "mention" || e.type === "text_mention");
-      const isTrueReply = msg.reply_to_message?.from?.id === ctx.me.id;
-      if (!isMentioned && !isTrueReply) return;
-    }
 
     try {
       await ctx.replyWithChatAction("typing");

@@ -2,8 +2,6 @@
 export const ADMIN_USER_ID = "1039189463";
 export const RATE_LIMIT_MS = 3000;     // 3 秒冷卻
 export const HISTORY_LIMIT = 5;        // 最近的歷史訊息條數（節省 token）
-export const EVENT_CHANCE = 0.04;      // 隨機酒館事件觸發機率
-export const TAVERN_GROUP_NAME = "紫罗兰喵喵酒馆（休闲区）"; // 只在此群觸發隨機事件
 
 /** 允許透過 /setstat 直接修改的欄位白名單（防止 SQL Injection） */
 export const ALLOWED_SETSTAT_COLUMNS: readonly string[] = [
@@ -24,18 +22,6 @@ export const GIFT_SHOP: Record<string, { name: string; affection: number; emoji:
   rose:     { name: "玫瑰花",   affection: 5,  emoji: "🌹" },
   chocolate:{ name: "巧克力",   affection: 3,  emoji: "🍫" },
 };
-
-/** 酒館隨機事件（使用者互動時觸發） */
-export const TAVERN_EVENTS: string[] = [
-  "一陣涼風從門口吹入，壁爐的火焰搖曳了一下。",
-  "酒館角落的留聲機換了一首輕柔的爵士樂。",
-  "店貓「奶油」輕巧地跳上吧檯，用尾巴掃過莎蘿的手背。",
-  "窗外傳來細微的雨聲，雨滴輕輕敲打著玻璃窗。",
-  "壁爐裡的柴火發出劈啪聲，溫暖的火光照亮了半個房間。",
-  "遠處傳來馬車的鈴聲，漸漸消失在街角。",
-  "一片枯葉從門縫飄了進來，落在窗台上。",
-  "吧檯上的燭火輕輕晃動，在牆上投下搖曳的影子。",
-];
 
 /** 每日占卜 */
 export const FORTUNES: string[] = [
@@ -58,8 +44,10 @@ export const DAILY_QUESTS: Array<{ id: string; description: string; reward: numb
 
 /** 心情枚舉 */
 export const MOODS = {
-  HAPPY:   { emoji: "😊", label: "開心", description: "語氣輕快" },
-  SHY:     { emoji: "😳", label: "害羞", description: "說話斷斷續續，多用「///」" },
-  ANGRY:   { emoji: "😤", label: "生氣", description: "冷淡回應，扣分加重" },
+  HAPPY:    { emoji: "😊", label: "開心",    description: "語氣輕快活潑，樂於互動" },
+  SHY:      { emoji: "😳", label: "害羞",    description: "說話斷斷續續，多用「///」，容易臉紅" },
+  ANGRY:    { emoji: "😤", label: "生氣",    description: "冷淡回應，扣分加重，不願配合" },
+  AROUSED:  { emoji: "🔥", label: "興奮",    description: "性愛狀態中被挑起慾望，語氣嬌喘、主動迎合" },
+  LUST:     { emoji: "💗", label: "淫亂",    description: "完全發情，極度渴望被侵犯，語氣大膽放蕩，主動索求" },
 } as const;
 export type Mood = keyof typeof MOODS;

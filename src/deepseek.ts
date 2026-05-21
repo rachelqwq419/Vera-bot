@@ -1,5 +1,5 @@
 import type { Env, UserRecord } from "./types";
-import { RATE_LIMIT_MS, HISTORY_LIMIT, GIFT_SHOP, EVENT_CHANCE, TAVERN_EVENTS, TAVERN_GROUP_NAME, MOODS, type Mood } from "./constants";
+import { RATE_LIMIT_MS, HISTORY_LIMIT, GIFT_SHOP, MOODS, type Mood } from "./constants";
 import { SYSTEM_PROMPT_TEMPLATE, INNER_OS_MARKER } from "./prompts";
 import { checkAchievements, computeFavoritePlay } from "./achievements";
 import { recordSpecialMoment } from "./utils";
@@ -119,6 +119,15 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
 
   const lowerMsg = userMessage.toLowerCase();
 
+  // ── 親吻 hard-code 備援：若用戶訊息含親吻動作，AI 可能漏標，強制 +1 ──
+  const kissKeywords = ["(親", "(吻", "(kiss", "(深吻", "(舌吻", "(輕吻",
+    "親了", "吻了", "親一下", "親了親", "親吻", "接吻",
+    "kiss", "deep kiss", "french kiss"];
+  const userHasKissAction = kissKeywords.some(kw => userMessage.toLowerCase().includes(kw.toLowerCase()));
+  if (userHasKissAction) {
+    s.kiss = Math.max(s.kiss, 1);
+  }
+
   // 每日問候（12 小時冷卻）
   if (
     (lowerMsg.includes("早安") || lowerMsg.includes("早晨") || lowerMsg.includes("晚安") || lowerMsg.includes("早抖"))
@@ -166,6 +175,12 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
     if (act in s) s[act]++;
   }
 
+  // 解析 MOOD 標籤
+  let aiMood: string | null = null;
+  const moodRegex = /\[MOOD:\s*(HAPPY|SHY|ANGRY|AROUSED|LUST)\]/gi;
+  const moodMatch = moodRegex.exec(aiReplyForParsing);
+  if (moodMatch) aiMood = moodMatch[1].toUpperCase();
+
   // ── 7. 清理 AI 回覆 ──
   let finalReplyToUser = aiReply.replace(/<think>[\s\S]*?<\/think>/gi, '');
   if (finalReplyToUser.includes('---')) {
@@ -173,16 +188,8 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
   }
   finalReplyToUser = finalReplyToUser
     .replace(/【?(系統|隱藏)?(數據|標籤|結算)】?[:：]?\s*/gi, '')
-    .replace(/\[(AFF|SEX):.*?\]/gi, '')
+    .replace(/\[(AFF|SEX|MOOD):.*?\]/gi, '')
     .trim();
-
-  // ── 隨機酒館事件（僅在特定群組觸發） ──
-  if (roomName === TAVERN_GROUP_NAME && Math.random() < EVENT_CHANCE) {
-    const eventMsg = TAVERN_EVENTS[Math.floor(Math.random() * TAVERN_EVENTS.length)];
-    if (eventMsg) {
-      finalReplyToUser = `* ${eventMsg}\n\n` + finalReplyToUser;
-    }
-  }
 
   // ── 8. 計算最終數值 ──
   const finalAffection = Math.min(100, Math.max(0, (userRecord.affection || 0) + affDelta));
@@ -243,14 +250,32 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
 
   // ── 心情變化邏輯 ──
   let newMood: string = userRecord.mood || "HAPPY";
-  // 收到禮物 → 開心
-  if (gifts.length > 0) newMood = "HAPPY";
-  // 被粗魯對待（好感度 < 30 且扣分）→ 生氣
-  else if (finalAffection < 30 && affDelta < 0) newMood = "ANGRY";
-  // 好感度突破里程碑 → 開心
-  else if (finalAffection >= 90 && (userRecord.affection || 0) < 90) newMood = "HAPPY";
-  // 隨機衰減：生氣 → 開心（過了幾個互動後自然恢復）
-  else if (currentMood === "ANGRY" && Math.random() < 0.3) newMood = "HAPPY";
+
+  // 優先：AI 透過 MOOD 標籤主動指定的心情
+  if (aiMood && ["HAPPY", "SHY", "ANGRY", "AROUSED", "LUST"].includes(aiMood)) {
+    newMood = aiMood;
+  }
+  // 性行為自動觸發：有 SEX 標籤 → AROUSED
+  else if (s.sex > 0 || s.blowjob > 0 || s.paizuri > 0 || s.handjob > 0 || s.footjob > 0 || s.kiss > 0) {
+    newMood = "AROUSED";
+  }
+  // 連續高潮、內射、後庭、吞精等激烈行為 → LUST
+  if (!aiMood && (s.orgasm > 0 || s.creampie > 0 || s.anal > 0 || s.swallow > 0 || s.cum_face > 0 || s.cum_tits > 0)) {
+    newMood = "LUST";
+  }
+  // 無性行為時的心情規則
+  if (!aiMood && s.sex === 0 && s.blowjob === 0 && s.paizuri === 0 && s.handjob === 0 && s.footjob === 0 && s.kiss === 0) {
+    // 收到禮物 → 開心
+    if (gifts.length > 0) newMood = "HAPPY";
+    // 被粗魯對待（好感度 < 30 且扣分）→ 生氣
+    else if (finalAffection < 30 && affDelta < 0) newMood = "ANGRY";
+    // 好感度突破里程碑 → 開心
+    else if (finalAffection >= 90 && (userRecord.affection || 0) < 90) newMood = "HAPPY";
+    // 隨機衰減：生氣 → 開心（過了幾個互動後自然恢復）
+    else if (currentMood === "ANGRY" && Math.random() < 0.3) newMood = "HAPPY";
+    // 從興奮/淫亂恢復（無性行為時回到開心）
+    else if ((currentMood === "AROUSED" || currentMood === "LUST") && Math.random() < 0.4) newMood = "HAPPY";
+  }
 
   // 成就判定
   const achievementUser: UserRecord = {
