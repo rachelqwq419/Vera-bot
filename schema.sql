@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS users (
     username TEXT,
     affection INTEGER DEFAULT 0,
     conversation_summary TEXT DEFAULT '',
+    unsummarized_count INTEGER DEFAULT 0,
 
     check_in_days INTEGER DEFAULT 0,
     last_greeting_date TEXT,
@@ -98,3 +99,4 @@ CREATE TABLE IF NOT EXISTS daily_quests (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(user_id) REFERENCES users(user_id)
 );
+

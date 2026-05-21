@@ -42,10 +42,8 @@ export function registerHandlers(bot: Bot, env: Env, execCtx: ExecutionContext):
       "/daily — 查看今日簽到狀態\n" +
       "/quest — 查看今日任務\n" +
       "/gifts — 查看送給莎蘿的禮物紀錄\n" +
-      "/fortune — 今日戀愛占卜\n" +
-      "/reset — 重置群組近期對話\n" +
-      "/resetuser — 清零指定用戶全部數據（GM only，需 reply 目標）\n" +
-      "/temp <數字> — 調整 AI 溫度（0.0 ~ 2.0，僅 GM 可用）\n\n" +
+      "/fortune — 今日戀愛占卜\n\n" +
+
       "💡 每日對莎蘿說「早安」「晚安」可以增加好感度。\n" +
       "🌹 使用 /rose send 送玫瑰花（好感度 +5）。\n" +
       "🍫 回覆莎蘿的訊息並輸入 /coin send 10 即可送巧克力（好感度 +3）。"
