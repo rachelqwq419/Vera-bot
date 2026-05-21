@@ -1,25 +1,21 @@
-DROP TABLE IF EXISTS messages;
-DROP TABLE IF EXISTS users;
-
--- 用戶資料表 (包含好感度與各種紀錄)
+-- 用戶資料表 (已補全所有隱藏計數器及簽到日期)
 CREATE TABLE users (
     user_id TEXT PRIMARY KEY,
     first_name TEXT,
     username TEXT,
-    affection INTEGER DEFAULT 0, -- 好感度 0-100
-    conversation_summary TEXT DEFAULT '', -- 長期記憶總結
+    affection INTEGER DEFAULT 0,
+    conversation_summary TEXT DEFAULT '',
     
-    -- 日常紀錄
     check_in_days INTEGER DEFAULT 0,
+    last_greeting_date TEXT, -- 👈 新增這行：記錄最後一次簽到的日期
     date_count INTEGER DEFAULT 0,
-    gifts_received TEXT DEFAULT '[]', -- JSON array
+    gifts_received TEXT DEFAULT '[]',
     favorite_call TEXT DEFAULT '',
-    achievements TEXT DEFAULT '[]', -- JSON array
-    user_likes TEXT DEFAULT '[]', -- JSON array
-    user_dislikes TEXT DEFAULT '[]', -- JSON array
-    special_moments TEXT DEFAULT '[]', -- JSON array
+    achievements TEXT DEFAULT '[]',
+    user_likes TEXT DEFAULT '[]',
+    user_dislikes TEXT DEFAULT '[]',
+    special_moments TEXT DEFAULT '[]',
     
-    -- 性事追蹤紀錄
     sex_count INTEGER DEFAULT 0,
     creampie_count INTEGER DEFAULT 0,
     paizuri_count INTEGER DEFAULT 0,
@@ -35,17 +31,23 @@ CREATE TABLE users (
     anal_count INTEGER DEFAULT 0,
     kiss_count INTEGER DEFAULT 0,
     longest_session INTEGER DEFAULT 0,
-    last_sex_date DATETIME,
     
+    -- 隱藏成就計數器
+    hair_pull_count INTEGER DEFAULT 0,
+    apron_sex_count INTEGER DEFAULT 0,
+    submissive_count INTEGER DEFAULT 0,
+    
+    last_sex_date DATETIME,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- 短期記憶對話表
+-- 短期記憶對話表 (已加入 chat_id)
 CREATE TABLE messages (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id TEXT,
-    role TEXT, -- 'user' or 'assistant'
+    chat_id TEXT, -- 新增了這個欄位！
+    role TEXT,
     content TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(user_id) REFERENCES users(user_id)
