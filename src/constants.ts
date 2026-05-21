@@ -1,7 +1,7 @@
 // ── 常數 ──
 export const ADMIN_USER_ID = "1039189463";
 export const RATE_LIMIT_MS = 3000;     // 3 秒冷卻
-export const HISTORY_LIMIT = 5;        // 最近的歷史訊息條數（節省 token）
+export const HISTORY_LIMIT = 12;       // 最近的歷史訊息條數（多用戶場景需要更多上下文）
 
 /** 允許透過 /setstat 直接修改的欄位白名單（防止 SQL Injection） */
 export const ALLOWED_SETSTAT_COLUMNS: readonly string[] = [

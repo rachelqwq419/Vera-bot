@@ -42,7 +42,8 @@ export function registerHandlers(bot: Bot, env: Env, execCtx: ExecutionContext):
       "/daily — 查看今日簽到狀態\n" +
       "/quest — 查看今日任務\n" +
       "/gifts — 查看送給莎蘿的禮物紀錄\n" +
-      "/fortune — 今日戀愛占卜\n\n" +
+      "/fortune — 今日戀愛占卜\n" +
+      "/reset — 清除與莎蘿的對話紀錄（不影響數據統計）\n\n" +
 
       "💡 每日對莎蘿說「早安」「晚安」可以增加好感度。\n" +
       "🌹 使用 /rose send 送玫瑰花（好感度 +5）。\n" +
@@ -385,14 +386,35 @@ ${specialMoments.length > 0 ? `📜 【特殊時刻】（最近 ${Math.min(3, sp
     );
   });
 
+  // ── /reset ──
+  bot.command("reset", async (ctx) => {
+    const userId = ctx.message?.from?.id.toString();
+    if (!userId) return ctx.reply("無法辨識您的身分。");
+
+    const userName = ctx.message!.from.first_name || "客人";
+
+    // 清除該用戶的對話記錄
+    await env.ciallo_db.prepare(
+      `DELETE FROM messages WHERE user_id = ?`
+    ).bind(userId).run();
+
+    await ctx.reply(
+      `🧹 ${userName}，莎蘿已經將您與我的對話紀錄全部清除囉～放心，數據統計不會受到影響，只有對話歷史被遺忘了呢。`
+    );
+  });
+
   // ── 一般文字訊息 ──
   bot.on("message:text", async (ctx) => {
+    if (!ctx.message) return;
     if (ctx.message.from?.is_bot) return;
+
+    // 忽略以 / 開頭的未註冊指令（避免干擾其他機器人）
+    if (ctx.message.text.startsWith("/")) return;
 
     try {
       await ctx.replyWithChatAction("typing");
-      const userId = ctx.message.from.id.toString();
-      const userName = ctx.message.from.first_name || "客人";
+      const userId = ctx.message!.from.id.toString();
+      const userName = ctx.message!.from.first_name || "客人";
       const chatId = ctx.chat.id.toString();
 
       const roomName = (ctx.chat.type !== "private" && 'title' in ctx.chat) ? (ctx.chat as any).title || "群組" : "私人對話";
