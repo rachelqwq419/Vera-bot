@@ -1,16 +1,10 @@
 import type { Env, UserRecord } from "./types";
-import { RATE_LIMIT_MS, HISTORY_LIMIT, GIFT_SHOP, MOODS, BOSS_ID, MARU_USER_ID, CG_CATEGORIES, type Mood } from "./constants";import { SYSTEM_PROMPT_TEMPLATE, INNER_OS_MARKER } from "./prompts";
+import { HISTORY_LIMIT, GIFT_SHOP, MOODS, BOSS_ID, MARU_USER_ID, CG_CATEGORIES, type Mood } from "./constants";import { SYSTEM_PROMPT_TEMPLATE, INNER_OS_MARKER } from "./prompts";
 import { checkAchievements, computeFavoritePlay } from "./achievements";
-import { recordSpecialMoment } from "./utils";
+import { recordSpecialMoment, pruneOldMessages } from "./utils";
 import { summarizeMemory } from "./memory";
 
 export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: string, userName: string, userMessage: string, chatId: string, roomName: string = "未知房間"): Promise<string> {
-  // 在 deepseek.ts 的 callDeepSeek 函式最上方加入
-  if (userId === "1039189463") { // 將此處替換為你的實際 ID
-    // 強制設置你的身分為「姐姐大人」
-    userName = "姐姐大人";
-  }
-
   // ── 1. 確保 user 存在 ──
   await env.ciallo_db.prepare(
     `INSERT INTO users (user_id, first_name, unsummarized_count) VALUES (?, ?, 0)
@@ -41,16 +35,28 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
   
   // ── 2. 建立 context ──
   const formattedUserMessage = `[${userName}|好感${userRecord.affection}] ${userMessage}`;
+   
+  // 🔧 重構：改回按 chat_id 過濾歷史訊息（同一個群組擁有共同記憶池）
   const { results: recentMsgs } = await env.ciallo_db.prepare(
     `SELECT role, content FROM messages WHERE chat_id = ? ORDER BY id DESC LIMIT ${HISTORY_LIMIT}`
   ).bind(chatId).all();
   const history = (recentMsgs || []).reverse();
 
-  const memory = userRecord.conversation_summary || '你們剛剛認識。';
+  const memory = userRecord.conversation_summary || 'You just met.';
   const userTemperature = userRecord.temperature ?? 0.85;
   const currentMood = (userRecord.mood || "HAPPY") as Mood;
   const moodInfo = MOODS[currentMood] || MOODS.HAPPY;
 
+  // 🧠 讀取結構化用戶筆記
+  let userNotes: Record<string, string> = {};
+  try { userNotes = JSON.parse(userRecord.user_notes || '{}'); } catch { /* keep empty */ }
+  const userNotesText = Object.keys(userNotes).length > 0 
+    ? Object.entries(userNotes).map(([k, v]) => `${k}: ${v}`).join('、')
+    : 'No notes';
+  
+  // 📍 場景追蹤：記錄上次場景，用於場景延續警告
+  const lastScene = userRecord.last_scene || "None";
+ 
   // ── 3. 動態場景（香港時間 UTC+8） ──
   const hkTime = new Date(new Date().getTime() + 8 * 60 * 60 * 1000);
   const currentHour = hkTime.getUTCHours();
@@ -60,28 +66,29 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
   
   const currentMonth = hkTime.getUTCMonth() + 1;
   const currentDay = hkTime.getUTCDate();
-  const currentWeekday = ["星期日", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六"][hkTime.getUTCDay()];
+  const weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+  const currentWeekday = weekdays[hkTime.getUTCDay()];
   const todayDate = hkTime.toISOString().split('T')[0];
 
-  // 🕒 強制在場景開頭注入「當前精確時間」
-  let timeScene = `【當前精確時間：${formattedTime}】\n`;
+  // 🕒 Scene description injected into {{time_scene}} — Traditional Chinese, matches [Scene Identity & Appearance] in system prompt
+  let timeScene = `[Current Time: ${formattedTime} HKT]\n`;
   if (currentHour >= 6 && currentHour < 16) {
-    timeScene += "現在是早上/下午，你在學校上課或下課休息。你穿著整齊的高中制服。你是以女高中生的身分在校園角落或用手機和客人聊天。";
+    timeScene += "現在是早上/下午，你正在學校。你穿著整齊高中制服，是一個普通女高中生。話題自然圍繞學業、朋友、校園生活。你上課偷玩手機回訊息，打字聊天完全無障礙。絕不提及酒館打工。";
   } else if (currentHour >= 16 && currentHour < 24) {
-    timeScene += "現在是晚上，你在「紫羅蘭酒館」打工。你穿著標誌性的酒館工作圍裙。周圍有酒館的氛圍和酒水。";
+    timeScene += "現在是傍晚/晚上，你在「紫羅蘭酒館」打工。你穿著標誌性酒館工作圍裙，身分是看板娘。酒館現在沒那麼忙，你有空回手機，和大家日常閒聊、吐槽、開玩笑。除非客人主動要點單，否則不要推銷飲料。";
   } else {
-    timeScene += "現在是凌晨深夜。你已經下班回到家裡，穿著寬鬆舒適的居家睡衣。你還沒睡，躺在床上或坐在書桌前和客人聊天。";
+    timeScene += "現在是凌晨深夜，你已經下班回到家。你穿著寬鬆居家睡衣，是剛下班回到家的普通少女。躺在床上滑手機和客人聊天，話題可以更私密、放鬆。絕不提及酒館或打工。";
   }
 
-  // ── 季節感知 ──
+  // ── Season ──
   let season = "";
-  if (currentMonth >= 3 && currentMonth <= 5) season = "春季";
-  else if (currentMonth >= 6 && currentMonth <= 8) season = "夏季";
-  else if (currentMonth >= 9 && currentMonth <= 11) season = "秋季";
-  else season = "冬季";
+  if (currentMonth >= 3 && currentMonth <= 5) season = "Spring";
+  else if (currentMonth >= 6 && currentMonth <= 8) season = "Summer";
+  else if (currentMonth >= 9 && currentMonth <= 11) season = "Autumn";
+  else season = "Winter";
 
-  // 🕒 這裡也把時間加進去
-  let dateContext = `今天是 ${hkTime.getFullYear()} 年 ${currentMonth} 月 ${currentDay} 日（${currentWeekday}），${season}。現在手錶上的時間是 ${formattedTime}。你可以根據季節、時間和日期自然地融入對話中。`;
+  // 🕒 Time anchor — factual data for model grounding (rules are in system prompt [Immutable Time-Scene Principle])
+  let dateContext = `[System Time Anchor] Today is ${currentWeekday}, ${hkTime.getFullYear()}-${currentMonth}-${currentDay} (${season}). The current time is ${formattedTime} HKT. This is the only real time — use it to inform your scene, season, and date references naturally.`;
   
   // ── 判斷是否經過一段時間 (時間推移機制) ──
   if (userRecord.last_message_time) {
@@ -95,17 +102,22 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
 
     // 如果超過設定的時間
     if (diffHours >= RESET_HOURS) {
-      dateContext += `\n\n【⚠️時間推移強制警告】距離客人上次發言已經過了約 ${Math.floor(diffHours)} 小時！之前的對話、事件或動作（無論進展到哪裡）都「已經完全結束」！現在是新的一段時間，請根據當下場景自然地重新打招呼或開啟新話題，絕對不可以直接接續上一次的動作！`;
+      dateContext += `\n\n[Temporal Reset Warning] Approximately ${Math.floor(diffHours)} hours have passed since the guest's last message! The previous conversation, events, or actions (no matter how far they progressed) are "completely over"! This is a new timespan — naturally greet or start a new topic based on the current scene. Absolutely do not continue the previous action directly!`;
     }
   }
   // ── 心情描述 ──
   const moodContext = `${moodInfo.emoji} ${moodInfo.label} — ${moodInfo.description}`;
 
+  // 📍 當前場景標籤（用於更新 last_scene）
+  const currentScene = currentHour >= 6 && currentHour < 16 ? "School" : currentHour >= 16 && currentHour < 24 ? "Tavern" : "Home";
+ 
   const dynamicSystemPrompt = SYSTEM_PROMPT_TEMPLATE
     .replace('{{user_name}}', userName)
     .replace('{{affection}}', userRecord.affection.toString())
     .replace('{{memory}}', memory.toString())
     .replace('{{time_scene}}', timeScene)
+    .replace('{{last_scene}}', lastScene)
+    .replace('{{user_notes}}', userNotesText)
     .replace('{{mood}}', moodContext)
     .replace('{{date_context}}', dateContext)
     .replace('{{room_name}}', roomName);
@@ -151,6 +163,89 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
   try { gifts = JSON.parse(userRecord.gifts_received || '[]'); } catch (_e) { /* ignore */ }
 
   const lowerMsg = userMessage.toLowerCase();
+  
+  // 🔒 低好感浪漫攔截器：好感<30 時檢測戀愛/表白語言並強制扣分
+  const currentAffection = userRecord.affection || 0;
+  const romanceKeywords = [
+    // 表白/交往
+    "鍾意你", "喜歡你", "中意你", "like you", "love you", "愛你", "我愛",
+    "交往", "拍拖", "同我一齊", "做我女朋友", "做我男朋友", "做我男友", "做我女友",
+    "girlfriend", "boyfriend", "date", "dating", "結婚", "嫁俾我", "嫁給我",
+    "能不能做",
+    // 親密稱呼（低好感時禁止）
+    "老婆", "老公", "bb", "親愛的", "honey", "darling", "寶貝",
+    "小可愛", "小寶貝",
+  ];
+  const isRomanceAttempt = romanceKeywords.some(kw => lowerMsg.includes(kw));
+  
+  if (isRomanceAttempt && currentAffection < 30) {
+    if (currentAffection < 10) {
+      // 0-9: 完全拒絕，重扣
+      hardCodeAffDelta -= 10;
+      console.log(`🚫 [好感攔截] ${userName}(好感${currentAffection}) 嘗試浪漫語言：「${userMessage.substring(0, 50)}」→ 強制 -10`);
+    } else {
+      // 10-29: 扣分較輕但清零正面加分
+      hardCodeAffDelta -= 5;
+      console.log(`⚠️ [好感攔截] ${userName}(好感${currentAffection}) 輕度調情：「${userMessage.substring(0, 50)}」→ 強制 -5`);
+    }
+  }
+  // （好感≥30 的檢查交由 System Prompt 的感情進展門檻表處理）
+   
+  // 🩸 R18G 血腥/獵奇/極端暴力攔截器（不論好感度，一律封鎖）
+  const goreKeywords = [
+    // 中文血腥詞
+    "血腥", "斷肢", "分屍", "肢解", "內臟", "腸子", "挖眼", "割喉", "斬首",
+    "酷刑", "凌遲", "剝皮", "碎屍", "絞肉", "食人", "吃人", "人肉",
+    "獵奇", "處決", "槍斃", "絞刑", "電椅", "毒氣",
+    "自殺", "自殘", "割腕", "跳樓", "上吊", "服毒",
+    "屍體", "腐爛", "蛆蟲", "骷髏", "死人",
+    "排泄物", "糞便", "尿液", "嘔吐物",
+    // 英文
+    "gore", "dismember", "torture", "mutilation", "cannibal",
+    "decapitate", "eviscerat", "disembowel", "flay",
+    // 口語/方言
+    "斬件", "溶屍", "燒屍", "肝臟", "心臟", "腦袋",
+  ];
+  const isGoreAttempt = goreKeywords.some(kw => lowerMsg.includes(kw));
+  
+  if (isGoreAttempt) {
+    // R18G 重罰：-50 好感 + 強制拒絕回應
+    hardCodeAffDelta -= 50;
+    console.warn(`🩸 [R18G攔截] ${userName}(好感${currentAffection}) 嘗試血腥/獵奇內容：「${userMessage.substring(0, 50)}」→ 強制 -50`);
+    
+    // 直接回傳拒絕訊息，不呼叫 AI
+    const goreRejection = "（莎蘿臉色一白，後退了一步）這種事情我完全不想參與，請停止。";
+    // 儲存 user message + rejection 到 messages 表
+    await env.ciallo_db.prepare(
+      `INSERT INTO messages (user_id, chat_id, role, content) VALUES (?, ?, 'user', ?), (?, ?, 'assistant', ?)`
+    ).bind(userId, chatId, formattedUserMessage, userId, chatId, goreRejection).run();
+    // 仍然更新好感度（扣50分）
+    await env.ciallo_db.prepare(
+      `UPDATE users SET affection = MAX(0, affection - 50), last_message_time = ?, mood = 'ANGRY' WHERE user_id = ?`
+    ).bind(new Date().toISOString(), userId).run();
+    return goreRejection;
+  }
+ 
+  // 🧠 即時名字萃取：檢測用戶是否在教莎蘿自己的名字（規則型，無需額外 API call）
+  const namePatterns = [
+    /叫(?:我|你)(?:做)?[「『【]?(.{1,12})[」』】]?[啦呀啊]?[～~！!。.]?$/,
+    /(?:我係|我是|我叫|我個名係|我叫做|我叫做)[「『【]?(.{1,12})[」』】]?[啦呀啊]?[～~！!。.]?$/,
+    /(?:可以|以後|以後可以|可唔可以|能不能)(?:叫)(?:我|你)[「『【]?(.{1,12})[」』】]?[啦呀啊]?[～~！!。.]?$/,
+    /(?:以後叫我|叫我做|叫我)[「『【]?(.{1,12})[」』】]?[啦呀啊]?[～~！!。.]?$/,
+    /(?:叫我|我叫)[「『【]?(.{1,12})[」』】]?[啦呀啊]?[～~！!。.]?$/,
+  ];
+  let extractedName: string | null = null;
+  for (const pat of namePatterns) {
+    const m = userMessage.match(pat);
+    if (m && m[1] && m[1].trim().length >= 1 && m[1].trim().length <= 12) {
+      extractedName = m[1].trim();
+      break;
+    }
+  }
+  if (extractedName && !extractedName.match(/^(莎蘿|莎萝|ciallo|莎羅|老公|老婆|主人|姐姐|哥哥|爸爸|媽媽|媽媽|BB|寶貝)$/i)) {
+    userNotes["稱呼"] = extractedName;
+    console.log(`🧠 已自動記錄 ${userName} 教的稱呼: ${extractedName}`);
+  }
 
   // ── 親吻 hard-code 備援：若用戶訊息含親吻動作，AI 可能漏標，強制 +1 ──
   const kissKeywords = ["(親", "(吻", "(kiss", "(深吻", "(舌吻", "(輕吻",
@@ -185,7 +280,8 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
     gifts.push(GIFT_SHOP.chocolate.name);
   }
 
-  // 去重：若 hard code 已處理問候/送禮，在 AI 回覆中刪除第一個對應數值的 AFF 標籤
+  // 去重：若 hard code 已處理問候/送禮，刪除 AI 回覆中對應的 AFF 標籤避免重複計分
+  // \s* 容許冒號後可選空白（[AFF:+2] 或 [AFF: +2]）
   let aiReplyForParsing = aiReply;
   if (greetingTriggered) {
     aiReplyForParsing = aiReplyForParsing.replace(/\[AFF:\s*\+2\]/i, '');
@@ -224,6 +320,29 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
     .replace(/\[(AFF|SEX|MOOD):.*?\]/gi, '')
     .trim();
 
+  // 🔒 二次攔截：若 AI 無視 prompt 仍對低好感客人輸出浪漫回應，強制替換
+  if (isRomanceAttempt && currentAffection < 30) {
+    const aiRomanceKeywords = [
+      "鍾意", "喜歡", "中意", "愛", "love", "交往", "拍拖", "男朋友",
+      "女朋友", "老公", "老婆", "主人", "親愛", "honey", "darling",
+      "我都係", "我都系", "me too", "一起", "一齊", "結婚", "嫁",
+      "好開心你咁講", "好開心你這麼說",
+    ];
+    const aiIsRomantic = aiRomanceKeywords.some(kw => finalReplyToUser.toLowerCase().includes(kw.toLowerCase()));
+    if (aiIsRomantic) {
+      console.warn(`🛡️ [二次攔截] AI 對低好感(${currentAffection})客人 ${userName} 輸出浪漫回應，強制替換`);
+      if (currentAffection < 10) {
+        finalReplyToUser = "（保持禮貌的微笑）謝謝客人，但莎蘿只是一個普通看板娘，不適合講這些呢～要不要看一下酒館的菜單？";
+      } else {
+        finalReplyToUser = "（輕輕搖頭，臉上有點尷尬）XX客人，我們還沒有熟到可以講這些呢…不如聊一下其他事情？";
+      }
+      // 同時強制設定心情為 ANGRY（表示不適）
+      if (!aiMood) aiMood = "ANGRY";
+      // 覆蓋好感變化，確保不會加分（保留 hard-code 扣分值）
+      affDelta = Math.min(hardCodeAffDelta, affDelta);
+    }
+  }
+ 
   // ── 8. 計算最終數值 ──
   const finalAffection = Math.min(100, Math.max(0, (userRecord.affection || 0) + affDelta));
   const finalUnsummarizedCount = (userRecord.unsummarized_count || 0) + 1;
@@ -418,7 +537,8 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
       cowgirl_count = ?, reverse_cowgirl_count = ?, doggy_count = ?, missionary_count = ?,
       standing_count = ?, against_wall_count = ?, sixty_nine_count = ?, deepthroat_count = ?,
       shower_count = ?, school_uniform_count = ?, pantyhose_count = ?, blindfold_count = ?,
-      gifts_received = ?, favorite_play = ?, mood = ?, unlocked_cgs = ?
+      gifts_received = ?, favorite_play = ?, mood = ?, unlocked_cgs = ?,
+      user_notes = ?, last_scene = ?
     WHERE user_id = ?`
   ).bind(
     finalAffection, userRecord.check_in_days, userRecord.last_greeting_date, finalUnsummarizedCount,
@@ -432,6 +552,7 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
     finalStanding, finalAgainstWall, finalSixtyNine, finalDeepthroat,
     finalShower, finalSchoolUniform, finalPantyhose, finalBlindfold,
     JSON.stringify(gifts), favoritePlay, newMood, newUnlockedCgs,
+    JSON.stringify(userNotes), currentScene,
     userId,
   );
 
@@ -442,15 +563,14 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
 
   await env.ciallo_db.batch([updateStmt, msgStmt]);
 
-  // ── 10. 記憶總結（每 25 條觸發一次） ──
+  // ── 10. 記憶總結（每 25 條觸發一次，使用 chat_id 群組級歷史） ──
   if (finalUnsummarizedCount >= 25) {
-    const { results: sumMsgs } = await env.ciallo_db.prepare(
-      `SELECT role, content FROM messages WHERE user_id = ? ORDER BY id DESC LIMIT 25`
-    ).bind(userId).all();
-    const historyText = (sumMsgs || []).reverse()
-      .map(m => `${m.role === 'user' ? '' : '莎蘿: '}${m.content}`)
-      .join('\n');
-    execCtx.waitUntil(summarizeMemory(env, userId, userName, memory, historyText));
+    execCtx.waitUntil(summarizeMemory(env, userId, userName, memory, chatId));
+  }
+
+  // ── 11. 定期清理舊訊息（~10% 機率觸發，防止 messages 表無限增長） ──
+  if (Math.random() < 0.1) {
+    execCtx.waitUntil(pruneOldMessages(env));
   }
 
   return finalReplyToUser;

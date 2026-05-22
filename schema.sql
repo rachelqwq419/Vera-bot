@@ -61,6 +61,10 @@ CREATE TABLE IF NOT EXISTS users (
     last_message_time TEXT,             -- rate limit tracking (ISO datetime)
     temperature REAL DEFAULT 0.85,      -- per-user AI temperature
 
+    -- Phase 2: 結構化用戶筆記 + 場景追蹤
+    user_notes TEXT DEFAULT '{}',       -- JSON: {"name":"小明","nickname":"..."}
+    last_scene TEXT DEFAULT '',         -- 上次場景: "school" | "bar" | "home" | ""
+
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );

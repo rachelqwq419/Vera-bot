@@ -1,6 +1,6 @@
 import { Bot } from "grammy";
 import type { Env } from "./types";
-import { ADMIN_USER_ID, MARU_USER_ID, GIFT_SHOP, ALLOWED_SETSTAT_COLUMNS, FORTUNES, DAILY_QUESTS, MOODS, CG_CATEGORIES, type Mood } from "./constants";import { getAffectionTitle } from "./utils";
+import { ADMIN_USER_ID, MARU_USER_ID, GIFT_SHOP, ALLOWED_SETSTAT_COLUMNS, FORTUNES, DAILY_QUESTS, MOODS, CG_CATEGORIES, type Mood } from "./constants";import { getAffectionTitle, ensureUserExists } from "./utils";
 import { computeFavoritePlay } from "./achievements";
 import { logAdminAction } from "./utils";
 import { callDeepSeek } from "./deepseek";
@@ -26,10 +26,10 @@ export function registerHandlers(bot: Bot, env: Env, execCtx: ExecutionContext):
 bot.use(async (ctx, next) => {
   const text = ctx.message?.text;
   
-  // 1. 確認係指令，且排除 /ciallo
+  // 1. 確認是指令，且排除 /ciallo
   if (text && text.startsWith("/") && !text.startsWith("/ciallo")) {
     
-    // 🔥 修改呢度：將 `/cg` 同 `/deletecg` 加入豁免清單
+    // 🔥 修改這裡：將 `/cg` 和 `/deletecg` 加入豁免清單
     if (text.startsWith("/cg") || text.startsWith("/deletecg")) {
       return next();
     }
@@ -71,7 +71,7 @@ bot.use(async (ctx, next) => {
       "/start — 重新開始\n" +
       "/ciallo — 顯示此幫助\n" +
       "/profile — 查看個人檔案\n" +
-      "/nsfw — 查看私密互動數據 (🔞)\n" + // 👈 新增呢一行
+      "/nsfw — 查看私密互動數據 (🔞)\n" + // 👈 新增這一行
       "/leaderboard 或 /rank — 好感度排行榜\n" +
       "/rank sex — 總性交次數排行榜\n" +
       "/rank achievements — 成就解鎖數排行榜\n" +
@@ -155,22 +155,60 @@ bot.use(async (ctx, next) => {
     }
   });
 
-// ── /profile（純愛日常檔案） ──
+  // ── /profile 指令：查看自己或 reply 對象的記憶與好感 ──
   bot.command("profile", async (ctx) => {
     try {
-      const userId = ctx.message?.from?.id.toString();
-      if (!userId) return;
+      let targetMsg = ctx.message?.reply_to_message;
+      
+      // 🎯 精準過濾：只有當「回覆的訊息 ID」剛好等於「主題創建的 ID」時，才當作沒回覆
+      if (
+        (ctx.message as any)?.is_topic_message && 
+        targetMsg && 
+        targetMsg.message_id === ctx.message?.message_thread_id
+      ) {
+        targetMsg = undefined; // 消除這個 Telegram 系統硬塞的假回覆
+      }
+
+      let targetUserId: string;
+      let targetName: string;
+      
+      // 這裡恢復原本乾淨的判斷
+      if (targetMsg?.from?.id) {
+        targetUserId = targetMsg.from.id.toString();
+        targetName = targetMsg.from.first_name || "客人";
+      } else {
+        const self = ctx.message?.from;
+        if (!self?.id) return ctx.reply("無法獲取你的 ID。");
+        targetUserId = self.id.toString();
+        targetName = self.first_name || "你";
+      }
+      
+      // 👇 新增這段攔截邏輯 👇
+      if (targetUserId === ctx.me.id.toString()) {
+        return ctx.reply("莎蘿的檔案可是秘密喔，不能隨便看～");
+      }
+      // 👆 新增結束 👆
+
+      await ensureUserExists(env, targetUserId, targetName);
       const user: any = await env.ciallo_db.prepare(
         `SELECT * FROM users WHERE user_id = ?`
-      ).bind(userId).first();
-      if (!user) return ctx.reply("您尚未與莎蘿進行過對話，紫羅蘭酒館目前沒有您的會員紀錄。");
+      ).bind(targetUserId).first();
+      if (!user) return ctx.reply(`莎蘿對 ${targetName} 還沒有任何印象呢。`);
 
       const title = getAffectionTitle(user.affection || 0);
       const moodKey = (user.mood || "HAPPY") as Mood;
       const moodInfo = MOODS[moodKey] || MOODS.HAPPY;
+      const summary = user.conversation_summary || "目前沒有特別的記憶。";
+      let likes = "無";
+      try { const p = JSON.parse(user.user_likes || '[]'); if (p.length > 0) likes = p.join("、"); } catch { /* ignore */ }
+      let dislikes = "無";
+      try { const p = JSON.parse(user.user_dislikes || '[]'); if (p.length > 0) dislikes = p.join("、"); } catch { /* ignore */ }
 
-      // 📊 依你要求，只留下好感度、關係、心情和互動天數
-      const profileText = `📊 【${user.first_name || "客人"} 的紫羅蘭專屬檔案】
+      const profileText = `
+ 🌸 莎蘿的腦內筆記 🌸
+ ---------------------------
+ 👤 對象： ${targetName}
+ ❤️ 好感度： ${user.affection || 0} / 100 (${title})
 
 💖 莎蘿好感度：${user.affection || 0} / 100
 🏷️ 當前關係：${title}
@@ -189,6 +227,8 @@ bot.use(async (ctx, next) => {
     try {
       const userId = ctx.message?.from?.id.toString();
       if (!userId) return;
+      const userName = ctx.message?.from?.first_name || "客人";
+      await ensureUserExists(env, userId, userName);
       const user: any = await env.ciallo_db.prepare(
         `SELECT * FROM users WHERE user_id = ?`
       ).bind(userId).first();
@@ -201,7 +241,7 @@ bot.use(async (ctx, next) => {
       let specialMoments: Array<{ time: string; event: string }> = [];
       try { specialMoments = JSON.parse(user.special_moments || '[]'); } catch (_e) { /* ignore */ }
 
-      // 🔞 所有色情追蹤、體位統計同成就移到呢到
+      // 🔞 所有色情追蹤、體位統計與成就移到這裡
       const nsfwText = `🔞 【${user.first_name || "客人"} 的私密互動追蹤】
 
 👉 總性交次數：${user.sex_count || 0} | 💋 接吻次數：${user.kiss_count || 0}
@@ -334,6 +374,8 @@ ${specialMoments.length > 0 ? `📜 【特殊時刻】（最近 ${Math.min(3, sp
   bot.command("daily", async (ctx) => {
     const userId = ctx.message?.from?.id.toString();
     if (!userId) return;
+    const userName = ctx.message?.from?.first_name || "客人";
+    await ensureUserExists(env, userId, userName);
     const user: any = await env.ciallo_db.prepare(
       `SELECT last_greeting_date, check_in_days FROM users WHERE user_id = ?`
     ).bind(userId).first();
@@ -355,6 +397,8 @@ ${specialMoments.length > 0 ? `📜 【特殊時刻】（最近 ${Math.min(3, sp
   bot.command("gifts", async (ctx) => {
     const userId = ctx.message?.from?.id.toString();
     if (!userId) return;
+    const userName = ctx.message?.from?.first_name || "客人";
+    await ensureUserExists(env, userId, userName);
     const user: any = await env.ciallo_db.prepare(
       `SELECT gifts_received FROM users WHERE user_id = ?`
     ).bind(userId).first();
@@ -468,6 +512,8 @@ ${specialMoments.length > 0 ? `📜 【特殊時刻】（最近 ${Math.min(3, sp
   bot.command("quest", async (ctx) => {
     const userId = ctx.message?.from?.id.toString();
     if (!userId) return;
+    const userName = ctx.message?.from?.first_name || "客人";
+    await ensureUserExists(env, userId, userName);
 
     const args = ctx.match?.trim();
 
@@ -694,7 +740,7 @@ ${specialMoments.length > 0 ? `📜 【特殊時刻】（最近 ${Math.min(3, sp
     if (data.startsWith('deletecg:')) {
       const adminId = ctx.from?.id.toString();
       if (adminId !== ADMIN_USER_ID) {
-        await ctx.answerCallbackQuery({ text: "你唔係 GM，冇權限預覽 CG。", show_alert: true });
+        await ctx.answerCallbackQuery({ text: "你不是 GM，沒有權限預覽 CG。", show_alert: true });
         return;
       }
 
@@ -704,7 +750,7 @@ ${specialMoments.length > 0 ? `📜 【特殊時刻】（最近 ${Math.min(3, sp
       ).bind(category).all();
 
       if (!cgList || cgList.length === 0) {
-        await ctx.answerCallbackQuery({ text: "呢個分類冇任何 CG。", show_alert: true });
+        await ctx.answerCallbackQuery({ text: "這個分類沒有任何 CG。", show_alert: true });
         return;
       }
 

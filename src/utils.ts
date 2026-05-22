@@ -41,3 +41,24 @@ export async function logAdminAction(env: Env, adminId: string, targetUserId: st
     ).bind(adminId, targetUserId, action, details).run();
   } catch (_e) { /* silently fail */ }
 }
+
+/** 確保用戶記錄存在（供指令 handler 使用，避免只打指令不聊天的用戶無紀錄） */
+export async function ensureUserExists(env: Env, userId: string, userName: string): Promise<void> {
+  await env.ciallo_db.prepare(
+    `INSERT INTO users (user_id, first_name, unsummarized_count) VALUES (?, ?, 0)
+     ON CONFLICT(user_id) DO UPDATE SET first_name = excluded.first_name WHERE first_name = ''`
+  ).bind(userId, userName).run();
+}
+
+/** 清理超過 7 天的舊訊息（防止 messages 表無限增長） */
+export async function pruneOldMessages(env: Env): Promise<void> {
+  try {
+    const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const { meta } = await env.ciallo_db.prepare(
+      `DELETE FROM messages WHERE created_at < ?`
+    ).bind(cutoff).run();
+    if ((meta as any)?.changes > 0) {
+      console.log(`🧹 已清理 ${(meta as any).changes} 條舊訊息（早於 ${cutoff}）`);
+    }
+  } catch (_e) { /* silently fail */ }
+}
