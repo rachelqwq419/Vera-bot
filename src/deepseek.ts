@@ -1,6 +1,5 @@
 import type { Env, UserRecord } from "./types";
-import { RATE_LIMIT_MS, HISTORY_LIMIT, GIFT_SHOP, MOODS, type Mood } from "./constants";
-import { SYSTEM_PROMPT_TEMPLATE, INNER_OS_MARKER } from "./prompts";
+import { RATE_LIMIT_MS, HISTORY_LIMIT, GIFT_SHOP, MOODS, BOSS_ID, MARU_USER_ID, type Mood } from "./constants";import { SYSTEM_PROMPT_TEMPLATE, INNER_OS_MARKER } from "./prompts";
 import { checkAchievements, computeFavoritePlay } from "./achievements";
 import { recordSpecialMoment } from "./utils";
 import { summarizeMemory } from "./memory";
@@ -18,15 +17,22 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
 
   if (!userRecord) throw new Error(`User ${userId} not found after upsert`);
 
-  // ── Rate limiting ──
-  const now = Date.now();
-  if (userRecord.last_message_time) {
-    const lastTime = new Date(userRecord.last_message_time).getTime();
-    if (now - lastTime < RATE_LIMIT_MS) {
-      return "（莎蘿正在忙著招呼其他客人，請稍等一下再呼喚她吧～）";
-    }
+  // 👑 老闆專屬霸王條款：瑪麗老闆的好感度保底 100
+  if (userId === BOSS_ID && userRecord.affection < 100) {
+    await env.ciallo_db.prepare(
+      `UPDATE users SET affection = 100 WHERE user_id = ?`
+    ).bind(userId).run();
+    userRecord.affection = 100;
   }
 
+  // 🎀 舞瑠專屬閨蜜條款：好朋友的好感度保底 100
+  if (userId === MARU_USER_ID && userRecord.affection < 100) {
+    await env.ciallo_db.prepare(
+      `UPDATE users SET affection = 100 WHERE user_id = ?`
+    ).bind(userId).run();
+    userRecord.affection = 100;
+  }
+  
   // ── 2. 建立 context ──
   const formattedUserMessage = `[${userName}|好感${userRecord.affection}] ${userMessage}`;
   const { results: recentMsgs } = await env.ciallo_db.prepare(
@@ -42,18 +48,23 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
   // ── 3. 動態場景（香港時間 UTC+8） ──
   const hkTime = new Date(new Date().getTime() + 8 * 60 * 60 * 1000);
   const currentHour = hkTime.getUTCHours();
+  // 🕒 抓取精確的分鐘數，組成 HH:MM 格式
+  const currentMinute = hkTime.getUTCMinutes().toString().padStart(2, '0');
+  const formattedTime = `${currentHour.toString().padStart(2, '0')}:${currentMinute}`;
+  
   const currentMonth = hkTime.getUTCMonth() + 1;
   const currentDay = hkTime.getUTCDate();
   const currentWeekday = ["星期日", "星期一", "星期二", "星期三", "星期四", "星期五", "星期六"][hkTime.getUTCDay()];
   const todayDate = hkTime.toISOString().split('T')[0];
 
-  let timeScene = "";
+  // 🕒 強制在場景開頭注入「當前精確時間」
+  let timeScene = `【當前精確時間：${formattedTime}】\n`;
   if (currentHour >= 6 && currentHour < 16) {
-    timeScene = "現在是早上/下午，你在學校上課或下課休息。你穿著整齊的高中制服。你是以女高中生的身分在校園角落或用手機和客人聊天。";
+    timeScene += "現在是早上/下午，你在學校上課或下課休息。你穿著整齊的高中制服。你是以女高中生的身分在校園角落或用手機和客人聊天。";
   } else if (currentHour >= 16 && currentHour < 24) {
-    timeScene = "現在是晚上，你在「紫羅蘭酒館」打工。你穿著標誌性的酒館工作圍裙。周圍有酒館的氛圍和酒水。";
+    timeScene += "現在是晚上，你在「紫羅蘭酒館」打工。你穿著標誌性的酒館工作圍裙。周圍有酒館的氛圍和酒水。";
   } else {
-    timeScene = "現在是凌晨深夜。你已經下班回到家裡，穿著寬鬆舒適的居家睡衣。你還沒睡，躺在床上或坐在書桌前和客人聊天。";
+    timeScene += "現在是凌晨深夜。你已經下班回到家裡，穿著寬鬆舒適的居家睡衣。你還沒睡，躺在床上或坐在書桌前和客人聊天。";
   }
 
   // ── 季節感知 ──
@@ -63,8 +74,24 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
   else if (currentMonth >= 9 && currentMonth <= 11) season = "秋季";
   else season = "冬季";
 
-  const dateContext = `今天是 ${hkTime.getFullYear()} 年 ${currentMonth} 月 ${currentDay} 日（${currentWeekday}），${season}。你可以根據季節和日期自然地融入對話中（例如夏天抱怨天氣熱、冬天想喝熱可可、節日時提及相關話題）。`;
+  // 🕒 這裡也把時間加進去
+  let dateContext = `今天是 ${hkTime.getFullYear()} 年 ${currentMonth} 月 ${currentDay} 日（${currentWeekday}），${season}。現在手錶上的時間是 ${formattedTime}。你可以根據季節、時間和日期自然地融入對話中。`;
+  
+  // ── 判斷是否經過一段時間 (時間推移機制) ──
+  if (userRecord.last_message_time) {
+    const lastMsgTime = new Date(userRecord.last_message_time);
+    
+    // 計算當前時間與最後發言時間的差距（換算成小時）
+    const diffHours = (hkTime.getTime() - lastMsgTime.getTime()) / (1000 * 60 * 60);
 
+    // 設定幾個鐘頭當作「時間已經推移」，這裡設為 4 小時
+    const RESET_HOURS = 4; 
+
+    // 如果超過設定的時間
+    if (diffHours >= RESET_HOURS) {
+      dateContext += `\n\n【⚠️時間推移強制警告】距離客人上次發言已經過了約 ${Math.floor(diffHours)} 小時！之前的對話、事件或動作（無論進展到哪裡）都「已經完全結束」！現在是新的一段時間，請根據當下場景自然地重新打招呼或開啟新話題，絕對不可以直接接續上一次的動作！`;
+    }
+  }
   // ── 心情描述 ──
   const moodContext = `${moodInfo.emoji} ${moodInfo.label} — ${moodInfo.description}`;
 

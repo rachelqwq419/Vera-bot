@@ -1,26 +1,62 @@
 import { Bot } from "grammy";
 import type { Env } from "./types";
-import { ADMIN_USER_ID, GIFT_SHOP, ALLOWED_SETSTAT_COLUMNS, FORTUNES, DAILY_QUESTS, MOODS, type Mood } from "./constants";
-import { getAffectionTitle } from "./utils";
+import { ADMIN_USER_ID, MARU_USER_ID, GIFT_SHOP, ALLOWED_SETSTAT_COLUMNS, FORTUNES, DAILY_QUESTS, MOODS, type Mood } from "./constants";import { getAffectionTitle } from "./utils";
 import { computeFavoritePlay } from "./achievements";
 import { logAdminAction } from "./utils";
 import { callDeepSeek } from "./deepseek";
 
 export function registerHandlers(bot: Bot, env: Env, execCtx: ExecutionContext): void {
-  // ── 【新增】全域攔截私訊 (PM) ──
+  // ── 全域攔截私訊 (PM) ──
   bot.use(async (ctx, next) => {
     if (ctx.chat?.type === "private") {
-      // 薇拉貼心小設計：允許 GM (你) 繼續私聊測試或下指令，其他人一律拒絕！
-      // 如果你連自己都想禁止私聊，把下面這個 if 判斷刪掉就可以囉～
-      if (ctx.from?.id.toString() === ADMIN_USER_ID) {
-        return next();
-      }
-      
-      // 其他人私聊時的回覆
+      const fromId = ctx.from?.id.toString();
+      if (fromId === ADMIN_USER_ID || fromId === MARU_USER_ID) return next();
       await ctx.reply("Ciallo～ 莎蘿目前只在「紫羅蘭喵喵酒館」營業喔！不接受私下邀約呢～");
-      return; // 直接中斷，不執行後面的指令或對話
+      return;
     }
-    return next(); // 如果是群組，就放行繼續往下執行
+    return next();
+  });
+
+  // 🌟 全域指令 20 秒自動刪除攔截器 (完美繞過 Cloudflare 限制) 🌟
+  bot.use(async (ctx, next) => {
+    const text = ctx.message?.text;
+    
+    // 1. 確認係指令，且排除 /ciallo
+    if (text && text.startsWith("/") && !text.startsWith("/ciallo")) {
+      const originalReply = ctx.reply.bind(ctx);
+      
+      // 2. 覆寫 ctx.reply
+      ctx.reply = async (msgText: string, ...rest: any[]) => {
+        const textWithNotice = msgText + "\n\n(🗑️ 此指令回覆將於 20 秒後自動刪除)";
+        const sentMsg = await originalReply(textWithNotice, ...rest);
+        
+        // 3. 確保在 30 秒大限前執行 (設定 20 秒最穩)
+        execCtx.waitUntil((async () => {
+          await new Promise(resolve => setTimeout(resolve, 20000));
+          
+          // 🛑 獨立 Catch：先試圖刪除莎蘿發出的訊息
+          try {
+            if (ctx.chat?.id && sentMsg.message_id) {
+              await ctx.api.deleteMessage(ctx.chat.id, sentMsg.message_id);
+            }
+          } catch (e) { 
+            console.log("無法刪除 AI 回覆，可能已被提早刪除"); 
+          }
+          
+          // 🛑 獨立 Catch：再試圖刪除客人觸發的指令
+          try {
+            if (ctx.chat?.id && ctx.message?.message_id) {
+              await ctx.api.deleteMessage(ctx.chat.id, ctx.message.message_id);
+            }
+          } catch (e) { 
+            console.log("無法刪除客人指令，可能是莎蘿沒有群組刪除權限"); 
+          }
+        })());
+        
+        return sentMsg;
+      };
+    }
+    return next();
   });
 
   // ── /start ──
@@ -28,7 +64,7 @@ export function registerHandlers(bot: Bot, env: Env, execCtx: ExecutionContext):
     ctx.reply("Ciallo～ 歡迎來到紫羅蘭酒館！我是莎蘿，希望能為您帶來愉快的時光～")
   );
 
-  // ── /ciallo ──
+// ── /ciallo ──
   bot.command("ciallo", (ctx) =>
     ctx.reply(
       "Ciallo～ 歡迎來到紫羅蘭酒館！\n\n" +
@@ -36,6 +72,7 @@ export function registerHandlers(bot: Bot, env: Env, execCtx: ExecutionContext):
       "/start — 重新開始\n" +
       "/ciallo — 顯示此幫助\n" +
       "/profile — 查看個人檔案\n" +
+      "/nsfw — 查看私密互動數據 (🔞)\n" + // 👈 新增呢一行
       "/leaderboard 或 /rank — 好感度排行榜\n" +
       "/rank sex — 總性交次數排行榜\n" +
       "/rank achievements — 成就解鎖數排行榜\n" +
@@ -43,7 +80,6 @@ export function registerHandlers(bot: Bot, env: Env, execCtx: ExecutionContext):
       "/quest — 查看今日任務\n" +
       "/gifts — 查看送給莎蘿的禮物紀錄\n" +
       "/fortune — 今日戀愛占卜\n" +
-      "/reset — 清除與莎蘿的對話紀錄（不影響數據統計）\n\n" +
 
       "💡 每日對莎蘿說「早安」「晚安」可以增加好感度。\n" +
       "🌹 使用 /rose send 送玫瑰花（好感度 +5）。\n" +
@@ -117,7 +153,7 @@ export function registerHandlers(bot: Bot, env: Env, execCtx: ExecutionContext):
     }
   });
 
-  // ── /profile ──
+// ── /profile（純愛日常檔案） ──
   bot.command("profile", async (ctx) => {
     try {
       const userId = ctx.message?.from?.id.toString();
@@ -127,25 +163,44 @@ export function registerHandlers(bot: Bot, env: Env, execCtx: ExecutionContext):
       ).bind(userId).first();
       if (!user) return ctx.reply("您尚未與莎蘿進行過對話，紫羅蘭酒館目前沒有您的會員紀錄。");
 
-      let achievements: string[] = [];
-      try { achievements = JSON.parse(user.achievements || '[]'); } catch (_e) { /* ignore */ }
-
-      const favoritePlay = computeFavoritePlay(user);
       const title = getAffectionTitle(user.affection || 0);
       const moodKey = (user.mood || "HAPPY") as Mood;
       const moodInfo = MOODS[moodKey] || MOODS.HAPPY;
 
-      let specialMoments: Array<{ time: string; event: string }> = [];
-      try { specialMoments = JSON.parse(user.special_moments || '[]'); } catch (_e) { /* ignore */ }
-
+      // 📊 依你要求，只留下好感度、關係、心情和互動天數
       const profileText = `📊 【${user.first_name || "客人"} 的紫羅蘭專屬檔案】
 
 💖 莎蘿好感度：${user.affection || 0} / 100
 🏷️ 當前關係：${title}
 😶 莎蘿今日心情：${moodInfo.emoji} ${moodInfo.label}
-📅 互動天數：${user.check_in_days || 0} 天
+📅 互動天數：${user.check_in_days || 0} 天`;
 
-🔞 【基本互動追蹤】
+      await ctx.reply(profileText);
+    } catch (error) {
+      console.error("Profile 讀取錯誤:", error);
+      await ctx.reply("讀取檔案時發生錯誤，請稍後再試。");
+    }
+  });
+
+  // ── /nsfw（🔞 私密互動數據追蹤） ──
+  bot.command("nsfw", async (ctx) => {
+    try {
+      const userId = ctx.message?.from?.id.toString();
+      if (!userId) return;
+      const user: any = await env.ciallo_db.prepare(
+        `SELECT * FROM users WHERE user_id = ?`
+      ).bind(userId).first();
+      if (!user) return ctx.reply("您尚未與莎蘿進行過對話，目前沒有您的私密紀錄。");
+
+      let achievements: string[] = [];
+      try { achievements = JSON.parse(user.achievements || '[]'); } catch (_e) { /* ignore */ }
+
+      const favoritePlay = computeFavoritePlay(user);
+      let specialMoments: Array<{ time: string; event: string }> = [];
+      try { specialMoments = JSON.parse(user.special_moments || '[]'); } catch (_e) { /* ignore */ }
+
+      // 🔞 所有色情追蹤、體位統計同成就移到呢到
+      const nsfwText = `🔞 【${user.first_name || "客人"} 的私密互動追蹤】
 
 👉 總性交次數：${user.sex_count || 0} | 💋 接吻次數：${user.kiss_count || 0}
 💦 內射次數：${user.creampie_count || 0} | 👄 口交次數：${user.blowjob_count || 0}
@@ -161,15 +216,19 @@ export function registerHandlers(bot: Bot, env: Env, execCtx: ExecutionContext):
 🧍 站立式：${user.standing_count || 0} | 🧱 壁咚式：${user.against_wall_count || 0}
 🔢 69式：${user.sixty_nine_count || 0} | 🗣️ 深喉：${user.deepthroat_count || 0}
 
+🔞 【情境統計】
+🚿 洗澡次數：${user.shower_count || 0} | 👔 制服次數：${user.school_uniform_count || 0}
+🧦 絲襪次數：${user.pantyhose_count || 0} | 🙈 蒙眼次數：${user.blindfold_count || 0}
+
 🏆 【已解鎖成就 (${achievements.length})】
 ${achievements.length > 0 ? achievements.map((a: string) => `✨ ${a}`).join('\n') : '暫無解鎖成就。'}
 
 ${specialMoments.length > 0 ? `📜 【特殊時刻】（最近 ${Math.min(3, specialMoments.length)} 條）\n${specialMoments.slice(-3).reverse().map((m: { time: string; event: string }) => `📌 ${m.event}`).join('\n')}` : ''}`;
 
-      await ctx.reply(profileText);
+      await ctx.reply(nsfwText);
     } catch (error) {
-      console.error("Profile 讀取錯誤:", error);
-      await ctx.reply("讀取檔案時發生錯誤，請稍後再試。");
+      console.error("NSFW 指令錯誤:", error);
+      await ctx.reply("讀取私密檔案時發生錯誤，請稍後再試。");
     }
   });
 
@@ -310,6 +369,72 @@ ${specialMoments.length > 0 ? `📜 【特殊時刻】（最近 ${Math.min(3, sp
     const summary = Object.entries(counts).map(([k, v]) => `${emojiMap[k] || '🎁'} ${k} ×${v}`).join('\n');
 
     await ctx.reply(`🎁 【送給莎蘿的禮物清單】\n\n${summary}\n\n共送出 ${gifts.length} 件禮物`);
+
+  // ── /coin (動態金額打賞與送巧克力) ──
+  bot.command("coin", async (ctx) => {
+    const args = ctx.match?.trim() || "";
+    
+    // 提取可能的數字 (使用更寬鬆的正則，只要有 send 和數字就抓出來)
+    const match = args.match(/send.*?(\d+)/i);
+    
+    if (!match) return; // 格式完全不對就忽略
+
+    const amount = parseInt(match[1], 10);
+    if (amount <= 0) return;
+
+    // 🎯 智能判斷：這筆錢是不是給莎蘿的？
+    // 條件 1：Reply 了莎蘿的訊息
+    const isReplyToCiallo = ctx.message?.reply_to_message?.from?.id === ctx.me.id;
+    // 條件 2：文字裡面直接 @ 了莎蘿的帳號
+    const isMentioningCiallo = ctx.me.username && args.includes(`@${ctx.me.username}`);
+
+    if (!isReplyToCiallo && !isMentioningCiallo) {
+      return; // 不是給她的，乖乖閉嘴讓真正的經濟機器人 (殷娘莉莉) 處理
+    }
+
+    const userId = ctx.message!.from.id.toString();
+
+    try {
+      const user: any = await env.ciallo_db.prepare(
+        `SELECT affection, gifts_received FROM users WHERE user_id = ?`
+      ).bind(userId).first();
+
+      if (!user) return ctx.reply("您還沒有和莎蘿說過話，先打聲招呼吧！");
+
+      // 讀取目前的禮物庫
+      let gifts: string[] = [];
+      try { gifts = JSON.parse(user.gifts_received || '[]'); } catch (_e) {}
+
+      let newAffection = user.affection || 0;
+      let replyText = "";
+
+      if (amount === 10) {
+        // 剛好 10 蚊：送巧克力 (+3)
+        gifts.push("巧克力");
+        newAffection = Math.min(100, newAffection + 3);
+        replyText = "（莎蘿開心地接過巧克力，紫色的眼眸亮了起來）\n哇！謝謝你送的巧克力～我會好好品嚐的！🍫\n\n(💖 好感度 +3)";
+      } else {
+        // 其他金額：小費金幣 (+1)
+        gifts.push("小費金幣");
+        newAffection = Math.min(100, newAffection + 1);
+        if (amount < 10) {
+           replyText = `（莎蘿收下了 ${amount} 個金幣，微微一笑）\n謝謝客人的打賞～蚊子再小也是肉呢！🪙\n\n(💖 好感度 +1)`;
+        } else {
+           replyText = `（莎蘿驚訝地看著 ${amount} 個金幣，睜大了眼睛）\n老闆！這裡有大戶啊！謝謝客人的慷慨打賞！🪙\n\n(💖 好感度 +1)`;
+        }
+      }
+
+      // 寫入資料庫
+      await env.ciallo_db.prepare(
+        `UPDATE users SET affection = ?, gifts_received = ? WHERE user_id = ?`
+      ).bind(newAffection, JSON.stringify(gifts), userId).run();
+
+      // 發送回覆 (這個回覆會被全域攔截器捕捉，20秒後自動刪除)
+      await ctx.reply(replyText);
+    } catch (error) {
+      console.error("送禮物出錯:", error);
+    }
+  });
   });
 
   // ── /fortune ──
@@ -403,13 +528,29 @@ ${specialMoments.length > 0 ? `📜 【特殊時刻】（最近 ${Math.min(3, sp
     );
   });
 
-  // ── 一般文字訊息 ──
+// ── 一般文字訊息 ──
   bot.on("message:text", async (ctx) => {
     if (!ctx.message) return;
     if (ctx.message.from?.is_bot) return;
 
-    // 忽略以 / 開頭的未註冊指令（避免干擾其他機器人）
+    // 忽略以 / 開頭的未註冊指令
     if (ctx.message.text.startsWith("/")) return;
+
+// 🛑 新增：群組發言過濾機制（防止 Token 爆炸）
+    if (ctx.chat.type !== "private") {
+      const botUsername = ctx.me.username;
+      const text = ctx.message.text;
+      
+      // 判斷條件：是否回覆莎蘿的訊息？
+      const isReplyToBot = ctx.message.reply_to_message?.from?.id === ctx.me.id;
+      // 判斷條件：文字中是否包含 @帳號，或是提到繁體的「莎蘿」或簡體的「莎萝」？
+      const isMentioned = text.includes(`@${botUsername}`) || text.includes("莎蘿") || text.includes("莎萝");
+
+      // 如果不是回覆她，也沒有 @她，也沒有直接叫她的名字，就乖乖閉嘴不處理
+      if (!isReplyToBot && !isMentioned) {
+        return;
+      }
+    }
 
     try {
       await ctx.replyWithChatAction("typing");
@@ -425,4 +566,18 @@ ${specialMoments.length > 0 ? `📜 【特殊時刻】（最近 ${Math.min(3, sp
       await ctx.reply("（莎蘿似乎被什麼事情打斷了，不好意思……請再對她說一次吧。）").catch(() => {});
     }
   });
+
+  // 🛡️ 新增：全域錯誤攔截器 (放在 registerHandlers 的最尾端)
+  bot.catch((err) => {
+    const e = err.error as any;
+    
+    // 如果錯誤訊息包含 bot was kicked，就安靜處理掉
+    if (e.description && e.description.includes("bot was kicked")) {
+      console.log(`[安全攔截] 莎蘿已被踢出群組或沒有權限發言，已忽略此錯誤。`);
+    } else {
+      // 其他嚴重錯誤才印出來
+      console.error("Grammy 運行時錯誤:", e);
+    }
+  });
+
 }
