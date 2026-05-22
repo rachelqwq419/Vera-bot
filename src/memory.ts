@@ -30,6 +30,7 @@ export async function summarizeMemory(env: Env, userId: string, userName: string
         model: "deepseek-chat",
         messages: [{ role: "system", content: summaryPrompt }],
         temperature: 0.1,
+        response_format: { type: "json_object" } // 👈 薇拉強烈建議加呢行！
       }),
     });
     const data = await response.json() as any;

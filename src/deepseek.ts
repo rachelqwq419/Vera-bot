@@ -1,10 +1,16 @@
 import type { Env, UserRecord } from "./types";
-import { RATE_LIMIT_MS, HISTORY_LIMIT, GIFT_SHOP, MOODS, BOSS_ID, MARU_USER_ID, type Mood } from "./constants";import { SYSTEM_PROMPT_TEMPLATE, INNER_OS_MARKER } from "./prompts";
+import { RATE_LIMIT_MS, HISTORY_LIMIT, GIFT_SHOP, MOODS, BOSS_ID, MARU_USER_ID, CG_CATEGORIES, type Mood } from "./constants";import { SYSTEM_PROMPT_TEMPLATE, INNER_OS_MARKER } from "./prompts";
 import { checkAchievements, computeFavoritePlay } from "./achievements";
 import { recordSpecialMoment } from "./utils";
 import { summarizeMemory } from "./memory";
 
 export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: string, userName: string, userMessage: string, chatId: string, roomName: string = "未知房間"): Promise<string> {
+  // 在 deepseek.ts 的 callDeepSeek 函式最上方加入
+  if (userId === "1039189463") { // 將此處替換為你的實際 ID
+    // 強制設置你的身分為「姐姐大人」
+    userName = "姐姐大人";
+  }
+
   // ── 1. 確保 user 存在 ──
   await env.ciallo_db.prepare(
     `INSERT INTO users (user_id, first_name, unsummarized_count) VALUES (?, ?, 0)
@@ -365,6 +371,41 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
     execCtx.waitUntil(recordSpecialMoment(env, userId, `解鎖成就：${newlyUnlocked[0]}`));
   }
 
+  // ── CG 掉落判定 ──
+  let newUnlockedCgs = userRecord.unlocked_cgs || '[]';
+
+  // 收集本次觸發的類別（排除 'sex' 通用標籤）
+  const triggeredCategories: string[] = [];
+  for (const [key, count] of Object.entries(s)) {
+    if (count > 0 && key !== 'sex') {
+      triggeredCategories.push(key);
+    }
+  }
+
+  if (triggeredCategories.length > 0) {
+    const placeholders = triggeredCategories.map(() => '?').join(',');
+    const { results: matchingCgs } = await env.ciallo_db.prepare(
+      `SELECT id, category FROM cgs WHERE category IN (${placeholders})`
+    ).bind(...triggeredCategories).all();
+
+    if (matchingCgs && matchingCgs.length > 0) {
+      let unlockedList: number[] = [];
+      try { unlockedList = JSON.parse(newUnlockedCgs); } catch { unlockedList = []; }
+      const unlockedSet = new Set(unlockedList);
+
+      const unownedCgs = (matchingCgs as any[]).filter((cg: any) => !unlockedSet.has(cg.id));
+
+      if (unownedCgs.length > 0) {
+        const picked = unownedCgs[Math.floor(Math.random() * unownedCgs.length)];
+        unlockedList.push(picked.id);
+        newUnlockedCgs = JSON.stringify(unlockedList);
+
+        const displayName = CG_CATEGORIES[picked.category] || picked.category;
+        finalReplyToUser += `\n\n🎉 系統提示：恭喜解鎖隱藏 CG【${displayName}】！請私訊莎蘿輸入 /cg 領取及查看專屬圖鑑。`;
+      }
+    }
+  }
+
   // ── 9. Atomic batch write ──
   const updateStmt = env.ciallo_db.prepare(
     `UPDATE users SET
@@ -377,7 +418,7 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
       cowgirl_count = ?, reverse_cowgirl_count = ?, doggy_count = ?, missionary_count = ?,
       standing_count = ?, against_wall_count = ?, sixty_nine_count = ?, deepthroat_count = ?,
       shower_count = ?, school_uniform_count = ?, pantyhose_count = ?, blindfold_count = ?,
-      gifts_received = ?, favorite_play = ?, mood = ?
+      gifts_received = ?, favorite_play = ?, mood = ?, unlocked_cgs = ?
     WHERE user_id = ?`
   ).bind(
     finalAffection, userRecord.check_in_days, userRecord.last_greeting_date, finalUnsummarizedCount,
@@ -390,7 +431,7 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
     finalCowgirl, finalReverseCowgirl, finalDoggy, finalMissionary,
     finalStanding, finalAgainstWall, finalSixtyNine, finalDeepthroat,
     finalShower, finalSchoolUniform, finalPantyhose, finalBlindfold,
-    JSON.stringify(gifts), favoritePlay, newMood,
+    JSON.stringify(gifts), favoritePlay, newMood, newUnlockedCgs,
     userId,
   );
 

@@ -66,4 +66,5 @@ export interface UserRecord {
   unsummarized_count: number;
   last_message_time: string | null;
   temperature: number;
+  unlocked_cgs: string;
 }

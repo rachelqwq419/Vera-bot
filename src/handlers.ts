@@ -1,6 +1,6 @@
 import { Bot } from "grammy";
 import type { Env } from "./types";
-import { ADMIN_USER_ID, MARU_USER_ID, GIFT_SHOP, ALLOWED_SETSTAT_COLUMNS, FORTUNES, DAILY_QUESTS, MOODS, type Mood } from "./constants";import { getAffectionTitle } from "./utils";
+import { ADMIN_USER_ID, MARU_USER_ID, GIFT_SHOP, ALLOWED_SETSTAT_COLUMNS, FORTUNES, DAILY_QUESTS, MOODS, CG_CATEGORIES, type Mood } from "./constants";import { getAffectionTitle } from "./utils";
 import { computeFavoritePlay } from "./achievements";
 import { logAdminAction } from "./utils";
 import { callDeepSeek } from "./deepseek";
@@ -11,53 +11,52 @@ export function registerHandlers(bot: Bot, env: Env, execCtx: ExecutionContext):
     if (ctx.chat?.type === "private") {
       const fromId = ctx.from?.id.toString();
       if (fromId === ADMIN_USER_ID || fromId === MARU_USER_ID) return next();
+      // 允許 callback_query (InlineKeyboard 按鈕) 通過
+      if (ctx.callbackQuery) return next();
+      // 允許 /cg 圖鑑指令通過
+      const msgText = ctx.message?.text || ctx.message?.caption || '';
+      if (msgText.startsWith('/cg')) return next();
       await ctx.reply("Ciallo～ 莎蘿目前只在「紫羅蘭喵喵酒館」營業喔！不接受私下邀約呢～");
       return;
     }
     return next();
   });
 
-  // 🌟 全域指令 20 秒自動刪除攔截器 (完美繞過 Cloudflare 限制) 🌟
-  bot.use(async (ctx, next) => {
-    const text = ctx.message?.text;
+// 🌟 全域指令 20 秒自動刪除攔截器 (修正版) 🌟
+bot.use(async (ctx, next) => {
+  const text = ctx.message?.text;
+  
+  // 1. 確認係指令，且排除 /ciallo
+  if (text && text.startsWith("/") && !text.startsWith("/ciallo")) {
     
-    // 1. 確認係指令，且排除 /ciallo
-    if (text && text.startsWith("/") && !text.startsWith("/ciallo")) {
-      const originalReply = ctx.reply.bind(ctx);
-      
-      // 2. 覆寫 ctx.reply
-      ctx.reply = async (msgText: string, ...rest: any[]) => {
-        const textWithNotice = msgText + "\n\n(🗑️ 此指令回覆將於 20 秒後自動刪除)";
-        const sentMsg = await originalReply(textWithNotice, ...rest);
-        
-        // 3. 確保在 30 秒大限前執行 (設定 20 秒最穩)
-        execCtx.waitUntil((async () => {
-          await new Promise(resolve => setTimeout(resolve, 20000));
-          
-          // 🛑 獨立 Catch：先試圖刪除莎蘿發出的訊息
-          try {
-            if (ctx.chat?.id && sentMsg.message_id) {
-              await ctx.api.deleteMessage(ctx.chat.id, sentMsg.message_id);
-            }
-          } catch (e) { 
-            console.log("無法刪除 AI 回覆，可能已被提早刪除"); 
-          }
-          
-          // 🛑 獨立 Catch：再試圖刪除客人觸發的指令
-          try {
-            if (ctx.chat?.id && ctx.message?.message_id) {
-              await ctx.api.deleteMessage(ctx.chat.id, ctx.message.message_id);
-            }
-          } catch (e) { 
-            console.log("無法刪除客人指令，可能是莎蘿沒有群組刪除權限"); 
-          }
-        })());
-        
-        return sentMsg;
-      };
+    // 🔥 修改呢度：將 `/cg` 同 `/deletecg` 加入豁免清單
+    if (text.startsWith("/cg") || text.startsWith("/deletecg")) {
+      return next();
     }
-    return next();
-  });
+
+    const originalReply = ctx.reply.bind(ctx);
+    
+    // 2. 覆寫 ctx.reply
+    ctx.reply = async (msgText: string, ...rest: any[]) => {
+      const textWithNotice = msgText + "\n\n(🗑️ 此指令回覆將於 20 秒後自動刪除)";
+      const sentMsg = await originalReply(textWithNotice, ...rest);
+      
+      // 3. 執行倒數刪除
+      execCtx.waitUntil((async () => {
+        await new Promise(resolve => setTimeout(resolve, 20000));
+        try {
+          if (ctx.chat?.id && sentMsg.message_id) await ctx.api.deleteMessage(ctx.chat.id, sentMsg.message_id);
+        } catch (e) { console.log("無法刪除 AI 回覆"); }
+        try {
+          if (ctx.chat?.id && ctx.message?.message_id) await ctx.api.deleteMessage(ctx.chat.id, ctx.message.message_id);
+        } catch (e) { console.log("無法刪除客人指令"); }
+      })());
+      
+      return sentMsg;
+    };
+  }
+  return next();
+});
 
   // ── /start ──
   bot.command("start", (ctx) =>
@@ -80,10 +79,13 @@ export function registerHandlers(bot: Bot, env: Env, execCtx: ExecutionContext):
       "/quest — 查看今日任務\n" +
       "/gifts — 查看送給莎蘿的禮物紀錄\n" +
       "/fortune — 今日戀愛占卜\n" +
+      "/cg — 查看CG圖鑑\n\n" +
 
       "💡 每日對莎蘿說「早安」「晚安」可以增加好感度。\n" +
       "🌹 使用 /rose send 送玫瑰花（好感度 +5）。\n" +
-      "🍫 回覆莎蘿的訊息並輸入 /coin send 10 即可送巧克力（好感度 +3）。"
+      "🍫 回覆莎蘿的訊息並輸入 /coin send 10 即可送巧克力（好感度 +3）。\n"+
+      "<b>送禮系統暫時無法使用正常增加好感度</b>" 
+      
     )
   );
 
@@ -314,6 +316,7 @@ ${specialMoments.length > 0 ? `📜 【特殊時刻】（最近 ${Math.min(3, sp
         sixty_nine_count = 0, deepthroat_count = 0,
         shower_count = 0, school_uniform_count = 0, pantyhose_count = 0,
         blindfold_count = 0,
+        unlocked_cgs = '[]',
         last_sex_date = NULL, unsummarized_count = 0
       WHERE user_id = ?
     `).bind(targetId).run();
@@ -527,6 +530,246 @@ ${specialMoments.length > 0 ? `📜 【特殊時刻】（最近 ${Math.min(3, sp
       `🧹 ${userName}，莎蘿已經將您與我的對話紀錄全部清除囉～放心，數據統計不會受到影響，只有對話歷史被遺忘了呢。`
     );
   });
+
+  // ── /addcg (GM only, 發送圖片 + caption 指令) ──
+  bot.on(":photo", async (ctx) => {
+    if (!ctx.message) return;
+    const caption = ctx.message.caption || '';
+    if (!caption.startsWith('/addcg')) return;
+    const adminId = ctx.message.from.id.toString();
+    if (adminId !== ADMIN_USER_ID) return;
+
+    const args = caption.trim().split(/\s+/);
+    if (args.length < 2) {
+      return ctx.reply("格式錯誤。請在圖片 caption 輸入：/addcg <分類名稱>\n可用分類：kiss, creampie, paizuri, blowjob, swallow, handjob, footjob, anal, cum_face, cum_tits, orgasm, public, hair_pull, apron, submissive, cowgirl, reverse_cowgirl, doggy, missionary, standing, against_wall, sixty_nine, deepthroat, shower, school_uniform, pantyhose, blindfold");
+    }
+    const category = args[1].toLowerCase();
+
+    const photos = ctx.message.photo;
+    const bestPhoto = photos[photos.length - 1];
+    const fileId = bestPhoto.file_id;
+
+    await env.ciallo_db.prepare(
+      `INSERT INTO cgs (category, file_id) VALUES (?, ?)`
+    ).bind(category, fileId).run();
+
+    const displayName = CG_CATEGORIES[category] || category;
+    await ctx.reply(`✅ 成功將圖片加入【${displayName}】分類！`);
+  });
+
+  // ── /deletecg (GM only, 列出或刪除 CG) ──
+  bot.command("deletecg", async (ctx) => {
+    const adminId = ctx.message?.from?.id.toString();
+    if (adminId !== ADMIN_USER_ID) return ctx.reply("你不是 GM，無法使用這個指令。");
+
+    const args = ctx.match?.trim();
+
+    // ── 無參數：顯示分類列表 + Inline 按鈕（預覽用） ──
+    if (!args) {
+      const { results } = await env.ciallo_db.prepare(
+        `SELECT id, category FROM cgs ORDER BY category, id`
+      ).all();
+
+      if (!results || results.length === 0) {
+        return ctx.reply("目前沒有任何 CG。");
+      }
+
+      const grouped: Record<string, number[]> = {};
+      for (const row of (results as any[])) {
+        if (!grouped[row.category]) grouped[row.category] = [];
+        grouped[row.category].push(row.id);
+      }
+
+      // 文字摘要
+      let text = "📋 【CG 管理面板】\n\n";
+      for (const [cat, ids] of Object.entries(grouped)) {
+        const display = CG_CATEGORIES[cat] || cat;
+        text += `${display}: ID ${ids.join(', ')}\n`;
+      }
+      text += "\n👇 點擊下方按鈕可預覽該分類所有 CG 圖片（每張會標明 ID）";
+      text += "\n確認後使用 /deletecg <id> 刪除指定 CG。";
+
+      // Inline 按鈕：每個分類一個按鈕（2 個一行）
+      const categories = Object.keys(grouped);
+      const keyboard: any[][] = [];
+      for (let i = 0; i < categories.length; i += 2) {
+        const row: any[] = [];
+        for (let j = i; j < Math.min(i + 2, categories.length); j++) {
+          const cat = categories[j];
+          const display = CG_CATEGORIES[cat] || cat;
+          row.push({
+            text: `${display} (${grouped[cat].length}張)`,
+            callback_data: `deletecg:${cat}`,
+          });
+        }
+        keyboard.push(row);
+      }
+
+      return ctx.reply(text, { reply_markup: { inline_keyboard: keyboard } });
+    }
+
+    // ── 帶參數：刪除指定 ID ──
+    const id = parseInt(args, 10);
+    if (isNaN(id)) return ctx.reply("請輸入有效的 CG ID（純數字），或使用 /deletecg 查看所有 CG。");
+
+    const cg = await env.ciallo_db.prepare(
+      `SELECT id, category FROM cgs WHERE id = ?`
+    ).bind(id).first() as any;
+
+    if (!cg) return ctx.reply(`找不到 ID 為 ${id} 的 CG。`);
+
+    await env.ciallo_db.prepare(
+      `DELETE FROM cgs WHERE id = ?`
+    ).bind(id).run();
+
+    const displayName = CG_CATEGORIES[cg.category] || cg.category;
+    await ctx.reply(`🗑️ 已刪除 CG #${id}（分類：${displayName}）。`);
+  });
+
+  // ── /cg (私訊圖鑑系統) ──
+  bot.command("cg", async (ctx) => {
+    if (ctx.chat?.type !== "private") {
+      return ctx.reply("請私訊莎蘿使用 /cg 來查看你的專屬圖鑑喔～");
+    }
+
+    const userId = ctx.from?.id.toString();
+    if (!userId) return;
+
+    const user = await env.ciallo_db.prepare(
+      `SELECT unlocked_cgs FROM users WHERE user_id = ?`
+    ).bind(userId).first() as { unlocked_cgs: string } | null;
+
+    let unlocked: number[] = [];
+    try { unlocked = JSON.parse(user?.unlocked_cgs || '[]'); } catch { /* ignore */ }
+    const unlockedSet = new Set(unlocked);
+
+    // 取得所有 CG，按分類統計總數與已解鎖數量
+    const { results: allCgs } = await env.ciallo_db.prepare(
+      `SELECT id, category FROM cgs`
+    ).all();
+
+    const categoryTotal: Record<string, number> = {};
+    const categoryUnlocked: Record<string, number> = {};
+
+    for (const row of (allCgs as any[])) {
+      categoryTotal[row.category] = (categoryTotal[row.category] || 0) + 1;
+      if (unlockedSet.has(row.id)) {
+        categoryUnlocked[row.category] = (categoryUnlocked[row.category] || 0) + 1;
+      }
+    }
+
+    const categories = Object.keys(categoryTotal);
+    if (categories.length === 0) {
+      return ctx.reply("目前還沒有任何 CG 可以收集。");
+    }
+
+    // 建立 InlineKeyboard（每行 2 個按鈕）
+    const keyboard: any[][] = [];
+    for (let i = 0; i < categories.length; i += 2) {
+      const row: any[] = [];
+      for (let j = i; j < Math.min(i + 2, categories.length); j++) {
+        const cat = categories[j];
+        const display = CG_CATEGORIES[cat] || cat;
+        const unlockedCount = categoryUnlocked[cat] || 0;
+        const total = categoryTotal[cat];
+        row.push({
+          text: `${display} (${unlockedCount}/${total})`,
+          callback_data: `cg:${cat}`,
+        });
+      }
+      keyboard.push(row);
+    }
+
+    await ctx.reply("📸 【莎蘿的私密圖鑑】\n\n請選擇要查看的分類：", {
+      reply_markup: { inline_keyboard: keyboard },
+    });
+  });
+
+  // ── callback_query：CG 圖鑑 / 管理按鈕處理 ──
+  bot.on("callback_query", async (ctx) => {
+    const data = ctx.callbackQuery?.data;
+    if (!data) return;
+
+    // ── deletecg: 分類預覽（GM only） ──
+    if (data.startsWith('deletecg:')) {
+      const adminId = ctx.from?.id.toString();
+      if (adminId !== ADMIN_USER_ID) {
+        await ctx.answerCallbackQuery({ text: "你唔係 GM，冇權限預覽 CG。", show_alert: true });
+        return;
+      }
+
+      const category = data.slice(9);
+      const { results: cgList } = await env.ciallo_db.prepare(
+        `SELECT id, file_id, category FROM cgs WHERE category = ? ORDER BY id`
+      ).bind(category).all();
+
+      if (!cgList || cgList.length === 0) {
+        await ctx.answerCallbackQuery({ text: "呢個分類冇任何 CG。", show_alert: true });
+        return;
+      }
+
+      const displayCat = CG_CATEGORIES[category] || category;
+      await ctx.answerCallbackQuery({ text: `正在載入 ${displayCat} 全部 ${cgList.length} 張 CG...` });
+
+      // 逐張發送，每張標明 [ID: X]
+      const rows = cgList as any[];
+      for (let i = 0; i < rows.length; i++) {
+        await ctx.replyWithPhoto(rows[i].file_id, {
+          caption: `[ID: ${rows[i].id}] ${displayCat}`,
+        });
+      }
+      // 總結提示
+      await ctx.reply(
+        `以上為【${displayCat}】全部 ${rows.length} 張 CG。\n使用 /deletecg <id> 刪除指定 CG。`
+      );
+      return;
+    }
+
+    // ── cg: 用戶圖鑑瀏覽 ──
+    if (!data.startsWith('cg:')) return;
+
+    const category = data.slice(3);
+    const userId = ctx.from?.id.toString();
+    if (!userId) return;
+
+    const user = await env.ciallo_db.prepare(
+      `SELECT unlocked_cgs FROM users WHERE user_id = ?`
+    ).bind(userId).first() as { unlocked_cgs: string } | null;
+
+    let unlocked: number[] = [];
+    try { unlocked = JSON.parse(user?.unlocked_cgs || '[]'); } catch { /* ignore */ }
+    const unlockedSet = new Set(unlocked);
+
+    const { results: cgs } = await env.ciallo_db.prepare(
+      `SELECT id, file_id FROM cgs WHERE category = ?`
+    ).bind(category).all();
+
+    const unlockedCgs = (cgs as any[]).filter((cg: any) => unlockedSet.has(cg.id));
+
+    if (unlockedCgs.length === 0) {
+      await ctx.answerCallbackQuery({ text: "你還沒有解鎖這個分類的任何 CG！", show_alert: true });
+      return;
+    }
+
+    await ctx.answerCallbackQuery({ text: `正在載入 ${CG_CATEGORIES[category] || category}...` });
+
+    // 使用 MediaGroup 發送（每批最多 10 張）
+    for (let i = 0; i < unlockedCgs.length; i += 10) {
+      const batch = unlockedCgs.slice(i, i + 10);
+      if (batch.length === 1) {
+        await ctx.replyWithPhoto(batch[0].file_id, {
+          caption: `${CG_CATEGORIES[category] || category} (1/${unlockedCgs.length})`,
+        });
+      } else {
+        const media = batch.map((cg: any) => ({
+          type: 'photo' as const,
+          media: cg.file_id,
+        }));
+        await ctx.replyWithMediaGroup(media);
+      }
+    }
+  });
+
 
 // ── 一般文字訊息 ──
   bot.on("message:text", async (ctx) => {

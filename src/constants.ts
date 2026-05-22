@@ -45,6 +45,37 @@ export const DAILY_QUESTS: Array<{ id: string; description: string; reward: numb
   { id: "order_drink",  description: "在酒館點一杯飲料",           reward: 2 },
 ];
 
+/** CG 分類對照表（category → 顯示名稱） */
+export const CG_CATEGORIES: Record<string, string> = {
+  kiss:            '💋 親吻',
+  creampie:        '💦 內射',
+  paizuri:         '🍼 乳交',
+  blowjob:         '👄 口交',
+  swallow:         '👅 吞精',
+  handjob:         '👐 手交',
+  footjob:         '🦶 足交',
+  anal:            '🍑 後庭',
+  cum_face:        '🎯 顏射',
+  cum_tits:        '💗 胸射',
+  orgasm:          '🌟 高潮',
+  public:          '🚫 公開場合',
+  hair_pull:       '💇 抓髮',
+  apron:           '👗 圍裙',
+  submissive:      '🔗 臣服',
+  cowgirl:         '🐮 騎乘位',
+  reverse_cowgirl: '🔄 反向騎乘',
+  doggy:           '🐕 後入式',
+  missionary:      '🛐 正常位',
+  standing:        '🧍 站立式',
+  against_wall:    '🧱 壁咚',
+  sixty_nine:      '🔢 69式',
+  deepthroat:      '🗣️ 深喉',
+  shower:          '🚿 浴室',
+  school_uniform:  '👔 制服',
+  pantyhose:       '🧦 絲襪',
+  blindfold:       '🙈 蒙眼',
+};
+
 /** 心情枚舉 */
 export const MOODS = {
   HAPPY:    { emoji: "😊", label: "開心",    description: "語氣輕快活潑，樂於互動" },
