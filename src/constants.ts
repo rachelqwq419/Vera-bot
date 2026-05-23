@@ -2,6 +2,7 @@
 export const ADMIN_USER_ID = "1039189463";
 export const MARU_USER_ID = "6172812239";    // 舞瑠的 TG ID
 export const BOSS_ID = "7804622477";         // 👑 瑪麗老闆的 TG ID
+export const LALA_USER_ID = "6299565972";    // 🌸 菈菈的 TG ID
 export const BOSS_USERNAME = "@Merryhiruwa"; // 👑 瑪麗老闆的 TG 帳號
 export const HISTORY_LIMIT = 30;       // 每次請求攜帶的歷史訊息條數
 

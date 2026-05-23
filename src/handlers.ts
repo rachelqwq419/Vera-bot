@@ -1,6 +1,6 @@
 import { Bot } from "grammy";
 import type { Env } from "./types";
-import { ADMIN_USER_ID, MARU_USER_ID, GIFT_SHOP, ALLOWED_SETSTAT_COLUMNS, FORTUNES, DAILY_QUESTS, MOODS, CG_CATEGORIES, type Mood } from "./constants";import { getAffectionTitle, ensureUserExists } from "./utils";
+import { ADMIN_USER_ID, MARU_USER_ID,LALA_USER_ID,GIFT_SHOP, ALLOWED_SETSTAT_COLUMNS, FORTUNES, DAILY_QUESTS, MOODS, CG_CATEGORIES, type Mood } from "./constants";import { getAffectionTitle, ensureUserExists } from "./utils";
 import { computeFavoritePlay } from "./achievements";
 import { logAdminAction } from "./utils";
 import { callDeepSeek } from "./deepseek";
@@ -10,7 +10,8 @@ export function registerHandlers(bot: Bot, env: Env, execCtx: ExecutionContext):
   bot.use(async (ctx, next) => {
     if (ctx.chat?.type === "private") {
       const fromId = ctx.from?.id.toString();
-      if (fromId === ADMIN_USER_ID || fromId === MARU_USER_ID) return next();
+      // 👇 這裡加上了 LALA_USER_ID 的判斷 👇
+      if (fromId === ADMIN_USER_ID || fromId === MARU_USER_ID || fromId === LALA_USER_ID) return next();
       // 允許 callback_query (InlineKeyboard 按鈕) 通過
       if (ctx.callbackQuery) return next();
       // 允許 /cg 圖鑑指令通過
@@ -83,9 +84,7 @@ bot.use(async (ctx, next) => {
 
       "💡 每日對莎蘿說「早安」「晚安」可以增加好感度。\n" +
       "🌹 使用 /rose send 送玫瑰花（好感度 +5）。\n" +
-      "🍫 回覆莎蘿的訊息並輸入 /coin send 10 即可送巧克力（好感度 +3）。\n"+
-      "<b>送禮系統暫時無法使用正常增加好感度</b>" 
-      
+      "🍫 回覆莎蘿的訊息並輸入 /coin send 10 即可送巧克力（好感度 +3）。"
     )
   );
 
@@ -559,21 +558,32 @@ ${specialMoments.length > 0 ? `📜 【特殊時刻】（最近 ${Math.min(3, sp
       `📋 【今日任務】\n\n${quest.description}\n\n完成後可獲得：好感度 +${quest.reward}\n使用 /quest status 查看完成狀態。`
     );
   });
-
-  // ── /reset ──
+// ── /reset (GM only) ──
   bot.command("reset", async (ctx) => {
-    const userId = ctx.message?.from?.id.toString();
-    if (!userId) return ctx.reply("無法辨識您的身分。");
+    // 1. 權限檢查：只有 ADMIN_USER_ID 可以使用
+    const adminId = ctx.message?.from?.id.toString();
+    if (adminId !== ADMIN_USER_ID) {
+      return ctx.reply("你不是 GM，無法使用這個指令。");
+    }
 
-    const userName = ctx.message!.from.first_name || "客人";
+    // 2. 判斷目標對象（預設是自己）
+    let targetUserId = adminId;
+    let targetName = ctx.message?.from?.first_name || "你";
 
-    // 清除該用戶的對話記錄
+    // 3. 如果你有 reply 別人的訊息，就把目標換成那個客人
+    const targetMsg = ctx.message?.reply_to_message;
+    if (targetMsg?.from?.id) {
+      targetUserId = targetMsg.from.id.toString();
+      targetName = targetMsg.from.first_name || "該客人";
+    }
+
+    // 4. 清除目標用戶的對話記錄
     await env.ciallo_db.prepare(
       `DELETE FROM messages WHERE user_id = ?`
-    ).bind(userId).run();
+    ).bind(targetUserId).run();
 
     await ctx.reply(
-      `🧹 ${userName}，莎蘿已經將您與我的對話紀錄全部清除囉～放心，數據統計不會受到影響，只有對話歷史被遺忘了呢。`
+      `🧹 [GM] 已經將 ${targetName} 的對話紀錄全部清除囉～數據統計不會受到影響，只有對話歷史被遺忘了呢。`
     );
   });
 
@@ -816,16 +826,53 @@ ${specialMoments.length > 0 ? `📜 【特殊時刻】（最近 ${Math.min(3, sp
     }
   });
 
+bot.command("addkey", async (ctx) => {
+    const adminId = ctx.message?.from?.id.toString();
+    if (adminId !== ADMIN_USER_ID) return; // 只有你可以加[cite: 15]
 
-// ── 一般文字訊息 ──
+    const args = ctx.match?.trim();
+    if (!args) return ctx.reply("請輸入 Key：/addkey sk-xxxxxx");
+
+    try {
+      await env.ciallo_db.prepare(
+        `INSERT INTO api_keys (api_key) VALUES (?)`
+      ).bind(args).run();
+      await ctx.reply("✅ 成功加入新 API Key！");
+    } catch (e) {
+      await ctx.reply("❌ 加入失敗。");
+    }
+  });
+
+// ── 查看所有 API Key 狀態 ──
+  bot.command("checkkeys", async (ctx) => {
+    const adminId = ctx.message?.from?.id.toString();
+    if (adminId !== ADMIN_USER_ID) return;
+
+    const { results } = await env.ciallo_db.prepare(`SELECT * FROM api_keys`).all();
+    if (!results || results.length === 0) return ctx.reply("資料庫入面一條 Key 都無喔～");
+
+    let text = "🔑 【API Key 狀態列表】\n";
+    for (const row of results as any[]) {
+      // 只顯示前 8 個字元保護安全
+      text += `ID: ${row.id} | 狀態: ${row.status === 'active' ? '🟢' : '🔴'} ${row.status} | Key: ${row.api_key.substring(0, 8)}...\n`;
+    }
+    await ctx.reply(text);
+  });
+
+  // ── 一般文字訊息 ──
   bot.on("message:text", async (ctx) => {
     if (!ctx.message) return;
     if (ctx.message.from?.is_bot) return;
 
-    // 忽略以 / 開頭的未註冊指令
-    if (ctx.message.text.startsWith("/")) return;
+    // 忽略以 / 開頭的未註冊指令，但「放行」送禮指令給 AI 處理！
+    if (ctx.message.text.startsWith("/")) {
+      const cmd = ctx.message.text.toLowerCase();
+      if (!cmd.startsWith("/rose") && !cmd.startsWith("/coin")) {
+        return;
+      }
+    }
 
-// 🛑 新增：群組發言過濾機制（防止 Token 爆炸）
+    // 🛑 群組發言過濾機制（防止 Token 爆炸）
     if (ctx.chat.type !== "private") {
       const botUsername = ctx.me.username;
       const text = ctx.message.text;
@@ -868,5 +915,4 @@ ${specialMoments.length > 0 ? `📜 【特殊時刻】（最近 ${Math.min(3, sp
       console.error("Grammy 運行時錯誤:", e);
     }
   });
-
 }

@@ -1,5 +1,5 @@
 import type { Env, UserRecord } from "./types";
-import { HISTORY_LIMIT, GIFT_SHOP, MOODS, BOSS_ID, MARU_USER_ID, CG_CATEGORIES, type Mood } from "./constants";import { SYSTEM_PROMPT_TEMPLATE, INNER_OS_MARKER } from "./prompts";
+import { HISTORY_LIMIT, GIFT_SHOP, MOODS, BOSS_ID, MARU_USER_ID,LALA_USER_ID,CG_CATEGORIES, type Mood } from "./constants";import { SYSTEM_PROMPT_TEMPLATE, INNER_OS_MARKER } from "./prompts";
 import { checkAchievements, computeFavoritePlay } from "./achievements";
 import { recordSpecialMoment, pruneOldMessages } from "./utils";
 import { summarizeMemory } from "./memory";
@@ -33,6 +33,14 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
     userRecord.affection = 100;
   }
   
+  // 🌸 菈菈專屬條款：初始好感度直接拉到 70 (摯友等級)
+  if (userId === LALA_USER_ID && userRecord.affection < 70) {
+    await env.ciallo_db.prepare(
+      `UPDATE users SET affection = 70 WHERE user_id = ?`
+    ).bind(userId).run();
+    userRecord.affection = 70;
+  }
+
   // ── 2. 建立 context ──
   const formattedUserMessage = `[${userName}|好感${userRecord.affection}] ${userMessage}`;
    
@@ -129,14 +137,13 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
     { role: "user", content: formattedUserMessage + INNER_OS_MARKER },
   ];
 
-  // ── 5. 發送請求給 DeepSeek ──
-  const response = await fetch("https://api.deepseek.com/chat/completions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${env.DEEPSEEK_API_KEY}` },
-    body: JSON.stringify({ model: "deepseek-v4-flash", messages: messagesPayload, temperature: userTemperature }),
+  // ── 5. 發送請求給 DeepSeek (改用自動換 Key 功能) ──
+  const data = await fetchWithFallback(env, { 
+    model: "deepseek-chat", // 注意：DeepSeek 最新模型名稱通常係 deepseek-chat 或 deepseek-reasoner
+    messages: messagesPayload, 
+    temperature: userTemperature 
   });
 
-  const data = await response.json() as any;
   if (data.error) throw new Error(`DeepSeek API error: ${data.error.message}`);
 
   if (!data?.choices?.[0]?.message?.content) {
@@ -168,17 +175,17 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
   const currentAffection = userRecord.affection || 0;
   const romanceKeywords = [
     // 表白/交往
-    "鍾意你", "喜歡你", "中意你", "like you", "love you", "愛你", "我愛",
-    "交往", "拍拖", "同我一齊", "做我女朋友", "做我男朋友", "做我男友", "做我女友",
+    "交往", "拍拖", "同我一齊", "做我女朋友", "做我老婆", "做我男友", "做我女友",
     "girlfriend", "boyfriend", "date", "dating", "結婚", "嫁俾我", "嫁給我",
-    "能不能做",
     // 親密稱呼（低好感時禁止）
-    "老婆", "老公", "bb", "親愛的", "honey", "darling", "寶貝",
-    "小可愛", "小寶貝",
+    "老婆", "老公", "bb", "親愛的", "honey", "darling", "小寶貝",
+    // 👇 修改這裡：移除了容易誤判的 "咬" 和 "奶" (避免吃東西/喝奶茶被扣分) 👇
+    "吻我", "親我", "kiss", "胸", "摸", "揉", "脫", "做愛", "上床", "內射", "乳",
+    "摟", "臀", "屁股", "推倒", "底褲", "內衣", "壓在", "裙", "舔"
   ];
   const isRomanceAttempt = romanceKeywords.some(kw => lowerMsg.includes(kw));
   
-  if (isRomanceAttempt && currentAffection < 30) {
+  if (isRomanceAttempt && currentAffection < 40) {
     if (currentAffection < 10) {
       // 0-9: 完全拒絕，重扣
       hardCodeAffDelta -= 10;
@@ -320,21 +327,25 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
     .replace(/\[(AFF|SEX|MOOD):.*?\]/gi, '')
     .trim();
 
-  // 🔒 二次攔截：若 AI 無視 prompt 仍對低好感客人輸出浪漫回應，強制替換
-  if (isRomanceAttempt && currentAffection < 30) {
+  // 🔒 二次攔截：若 AI 無視 prompt 仍對低好感客人輸出浪漫/色情回應，強制替換
+  if ((isRomanceAttempt || s.sex > 0 || s.kiss > 0 || s.paizuri > 0 || s.blowjob > 0 || s.handjob > 0 || s.footjob > 0) && currentAffection < 40) {
     const aiRomanceKeywords = [
       "鍾意", "喜歡", "中意", "愛", "love", "交往", "拍拖", "男朋友",
       "女朋友", "老公", "老婆", "主人", "親愛", "honey", "darling",
-      "我都係", "我都系", "me too", "一起", "一齊", "結婚", "嫁",
-      "好開心你咁講", "好開心你這麼說",
+      "我都係", "我也是", "me too", "一起", "一齊", "結婚", "嫁",
+      "好開心你這樣說", "好開心你這麼說", "吻", "親", "舒服", "繼續"
     ];
-    const aiIsRomantic = aiRomanceKeywords.some(kw => finalReplyToUser.toLowerCase().includes(kw.toLowerCase()));
+    
+    // 只要有觸發 SEX 標籤，或者講咗浪漫說話，就直接攔截
+    const aiIsRomantic = aiRomanceKeywords.some(kw => finalReplyToUser.toLowerCase().includes(kw.toLowerCase())) 
+                         || Object.values(s).some(val => val > 0)
+                         || affDelta > 0; // 👈 只要低好感時嘗試調情還敢加分，一律視為 AI 判定錯誤    
     if (aiIsRomantic) {
-      console.warn(`🛡️ [二次攔截] AI 對低好感(${currentAffection})客人 ${userName} 輸出浪漫回應，強制替換`);
+      console.warn(`🛡️ [二次攔截] AI 對低好感(${currentAffection})客人 ${userName} 輸出越軌回應，強制替換`);
       if (currentAffection < 10) {
-        finalReplyToUser = "（保持禮貌的微笑）謝謝客人，但莎蘿只是一個普通看板娘，不適合講這些呢～要不要看一下酒館的菜單？";
+        finalReplyToUser = "（立刻後退，眼神充滿警戒）請客人放尊重一點！這裡不提供那種服務！";
       } else {
-        finalReplyToUser = "（輕輕搖頭，臉上有點尷尬）XX客人，我們還沒有熟到可以講這些呢…不如聊一下其他事情？";
+        finalReplyToUser = "（臉紅著推開你，語氣慌張）等、等等！客人，我們還沒有熟到可以做這種事…請不要這樣！";
       }
       // 同時強制設定心情為 ANGRY（表示不適）
       if (!aiMood) aiMood = "ANGRY";
@@ -419,8 +430,8 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
   if (!aiMood && s.sex === 0 && s.blowjob === 0 && s.paizuri === 0 && s.handjob === 0 && s.footjob === 0 && s.kiss === 0) {
     // 收到禮物 → 開心
     if (gifts.length > 0) newMood = "HAPPY";
-    // 被粗魯對待（好感度 < 30 且扣分）→ 生氣
-    else if (finalAffection < 30 && affDelta < 0) newMood = "ANGRY";
+    // 被粗魯對待（好感度 < 40 且扣分）→ 生氣
+    else if (finalAffection < 40 && affDelta < 0) newMood = "ANGRY";
     // 好感度突破里程碑 → 開心
     else if (finalAffection >= 90 && (userRecord.affection || 0) < 90) newMood = "HAPPY";
     // 隨機衰減：生氣 → 開心（過了幾個互動後自然恢復）
@@ -574,4 +585,71 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
   }
 
   return finalReplyToUser;
+}
+
+
+export async function fetchWithFallback(env: Env, payload: any, triedKeys: string[] = []): Promise<any> {
+  // 1. 一次過攞晒所有 Key 出嚟，按狀態排序 (active 優先，depleted 排後面)
+  const { results } = await env.ciallo_db.prepare(
+    `SELECT api_key, status FROM api_keys ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END, id ASC`
+  ).all();
+
+  // 將資料庫嘅 Key 轉做陣列
+  let keysToTry = (results as {api_key: string, status: string}[]).map(r => ({key: r.api_key, status: r.status}));
+  
+  // 加埋 env 條保底 Key 落去清單尾 (當佢係 env 專屬狀態)
+  if (env.DEEPSEEK_API_KEY) {
+      keysToTry.push({ key: env.DEEPSEEK_API_KEY, status: 'env' });
+  }
+
+  // 2. 搵出第一條「今次請求未試過」嘅 Key
+  const nextKeyObj = keysToTry.find(k => !triedKeys.includes(k.key));
+
+  // 如果連舊 Key 都試晒，真係全部都無錢啦
+  if (!nextKeyObj) {
+    throw new Error("莎蘿已經試晒所有 API Key，全部都無晒錢或者失效啦！嗚嗚...");
+  }
+
+  const currentKey = nextKeyObj.key;
+
+  // 3. 發送請求
+  const response = await fetch("https://api.deepseek.com/chat/completions", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${currentKey}` },
+    body: JSON.stringify(payload),
+  });
+
+  const data = await response.json() as any;
+
+  // 4. 偵測係咪無錢或失效
+  if (data.error && (
+      data.error.code === 'insufficient_balance' || 
+      data.error.message.includes('balance') ||
+      data.error.message.includes('Authentication') || 
+      data.error.message.includes('invalid')
+  )) {
+    console.log(`⚠️ Key 失效或無錢: ${currentKey.substring(0, 8)}... `);
+
+    // 如果佢原本係資料庫嘅 Key，標記佢做 depleted
+    if (nextKeyObj.status !== 'env') {
+        await env.ciallo_db.prepare(
+          `UPDATE api_keys SET status = 'depleted' WHERE api_key = ?`
+        ).bind(currentKey).run();
+    }
+
+    // 將呢條失敗嘅 Key 加入黑名單，然後重新呼叫自己 (遞迴) 試下一條！
+    triedKeys.push(currentKey);
+    return fetchWithFallback(env, payload, triedKeys);
+  }
+
+  // 5. 🎯 成功觸發復活機制！
+  // 如果呢條 Key 之前係 depleted，但今次竟然成功咗，即係主人充咗值！幫佢「復活」！
+  if (nextKeyObj.status === 'depleted') {
+      console.log(`✨ 發現舊 Key 已經充值，自動復活啦: ${currentKey.substring(0, 8)}...`);
+      await env.ciallo_db.prepare(
+        `UPDATE api_keys SET status = 'active' WHERE api_key = ?`
+      ).bind(currentKey).run();
+  }
+
+  return data;
 }

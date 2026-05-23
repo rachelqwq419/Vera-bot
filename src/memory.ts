@@ -1,4 +1,5 @@
 import type { Env } from "./types";
+import { fetchWithFallback } from "./deepseek";
 
 /**
  * 記憶總結函式
@@ -52,22 +53,15 @@ ${historyText}
 - 若無則為空陣列 []
 `;
 
-  try {
-    const response = await fetch("https://api.deepseek.com/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${env.DEEPSEEK_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: "deepseek-v4-flash",
-        messages: [{ role: "system", content: summaryPrompt }],
-        temperature: 0.1,
-        response_format: { type: "json_object" },
-      }),
+try {
+    // 改用有 Fallback 嘅函數
+    const data = await fetchWithFallback(env, {
+      model: "deepseek-v4-pro", 
+      messages: [{ role: "system", content: summaryPrompt }],
+      temperature: 0.1,
+      response_format: { type: "json_object" },
     });
 
-    const data = await response.json() as any;
     if (data.error) {
       console.warn("記憶總結 API 錯誤:", data.error.message);
       return;
