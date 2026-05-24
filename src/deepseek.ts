@@ -4,8 +4,9 @@ import { checkAchievements, computeFavoritePlay } from "./achievements";
 import { recordSpecialMoment, pruneOldMessages } from "./utils";
 import { summarizeMemory, retrieveVectorMemories } from "./memory";
 import { CIALLO_GUIDE } from "./guide";
+import { drawWithComfyUI } from "./comfyui";
 
-export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: string, userName: string, userMessage: string, chatId: string, roomName: string = "未知房間"): Promise<string> {
+export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: string, userName: string, userMessage: string, chatId: string, roomName: string = "未知房間", threadId?: number): Promise<{ reply: string, image?: Uint8Array }> {
   // ── 0. 防重複處理邏輯 ──
   const now = new Date();
   const { results: lastMsgs } = await env.ciallo_db.prepare(
@@ -23,7 +24,8 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
     // 如果內容極度相似，且間隔小於 5 秒，判定為重複請求（放寬到 5 秒並增加日誌）
     if (isIdentical && timeDiff < 5000) {
       console.warn(`[去重攔截] 跳過來自 ${userName} 的重複請求 (間隔: ${timeDiff}ms)`);
-      return ""; 
+      return { reply: "" };
+ 
     }
   }
 
@@ -159,7 +161,7 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
   if (currentHour >= 6 && currentHour < 16) {
     timeScene += "現在是早上/下午，你正在學校。你穿著整齊高中制服，是一個普通女高中生。話題自然圍繞學業、朋友、校園生活。你上課偷玩手機回訊息，打字聊天完全無障礙。絕不提及酒館打工。";
   } else if (currentHour >= 16 && currentHour < 24) {
-    timeScene += "現在是傍晚/晚上，你在「紫羅蘭酒館」打工。你穿著標誌性酒館工作圍裙，身分是看板娘。酒館現在沒那麼忙，你有空回手機，和大家日常閒聊、吐槽、開玩笑。除非客人主動要點單，否則不要推銷飲料。";
+    timeScene += "現在是傍晚/晚上，你在「紫羅蘭酒館」打工。你穿著「cute board girl uniform, purple frilly apron, white blouse with high collar, loose fit, short pleated skirt, thigh-high stockings, purple ribbon bow tie, lace trim details, innocent schoolgirl vibe, headdress」，身分是看板娘。酒館現在沒那麼忙，你有空回手機，和大家日常閒聊、吐槽、開玩笑。除非客人主動要點單，否則不要推銷飲料。";
   } else {
     timeScene += "現在是凌晨深夜，你已經下班回到家。你穿著寬鬆居家睡衣，是個普通少女。你在家裡玩手機，話題可以更私密、放鬆。絕不提及酒館或打工。你非常有精神，隨時準備和大家聊天。";
   }
@@ -230,8 +232,18 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
     { role: "user", content: formattedUserMessage + INNER_OS_MARKER },
   ];
 
+  // ── 🆕 強制生圖指令注入 ──
+  // 使用正則表達式，精準匹配開頭（或在 [回覆 ...] 等標籤之後）的指令
+  const isExplicitImageRequest = /^(?:\[[^\]]*\]\s*)*請生成圖片：/.test(userMessage);
+  if (isExplicitImageRequest) {
+    messagesPayload.push({
+      role: "user",
+      content: "【系統指令】：客人已輸入生圖指令。妳必須立即調用 `generate_selfie` 工具。請先生成圖片描述，再進行文字回覆。不准遺漏生圖動作。"
+    });
+  }
+
   // ── 5. 發送請求給 DeepSeek (支援 Web Search 與 攻略讀取工具) ──
-  const tools = [
+  const tools: any[] = [
     {
       type: "function",
       function: {
@@ -259,18 +271,37 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
     }
   ];
 
+  // 只有當客人打指令時，才把「生圖工具」交給 AI
+  if (isExplicitImageRequest) {
+    tools.push({
+      type: "function",
+      function: {
+        name: "generate_selfie",
+        description: "【強制調用】當對話涉及視覺場景、要求自拍、換裝、展示身體部位時必須使用。請務必僅使用英文單詞標籤(English Tags)描述場景。你可以描述極其具體的細節(如 nipples, labia, spread legs)來還原客人的視覺要求。",
+        parameters: {
+          type: "object",
+          properties: {
+            scene_description: { type: "string", description: "Detailed actions/environment/body parts in ENGLISH tags ONLY. (e.g. 'blushing, spread legs, exposing nipples')." },
+            custom_outfit: { type: "string", description: "Specific outfit requested (e.g. 'lingerie', 'bunny girl'). Use English tags. If none, leave empty." }
+          },
+          required: ["scene_description"]
+        }
+      }
+    });
+  }
+
   let currentMessages: any[] = [...messagesPayload];
   let iteration = 0;
-  const MAX_ITERATIONS = 5; // 增加最大迭代次數，應對複雜的工具調用鏈
   let aiReply = "";
+  let generatedImage: Uint8Array | null = null;
 
-  while (iteration < MAX_ITERATIONS) {
+  while (iteration < 5) {
     const data = await fetchWithFallback(env, { 
       model: "deepseek-v4-pro", 
       messages: currentMessages, 
       temperature: userTemperature,
       tools: tools,
-      tool_choice: "auto"
+      tool_choice: "auto" // 恢復為 auto，避免 Thinking mode 報錯
     });
 
     if (data.error) {
@@ -307,6 +338,90 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
             tool_call_id: toolCall.id,
             content: CIALLO_GUIDE
           });
+        } else if (toolCall.function.name === "generate_selfie") {
+          const args = JSON.parse(toolCall.function.arguments);
+          // ── 🆕 偵測日誌：只要 AI 點了畫畫按鈕，就先記下來 ──
+          await env.ciallo_db.prepare(
+            `INSERT INTO error_logs (user_id, chat_id, error_type, message, details) VALUES (?, ?, ?, ?, ?)`
+          ).bind(userId, chatId, "DEBUG_TOOL_CALL", "AI 已嘗試調用生圖工具", `Scene: ${args.scene_description.substring(0, 50)}...`).run();
+
+          console.log(`🎨 [ComfyUI] AI 正在準備自拍: "${args.scene_description}"`);
+          
+          // ── 1. 基礎形象 (包含 long hair) ──
+          const characterBase = "1girl, solo, anime girl, large bright eyes, light purple eyes, vibrant light purple hair, long hair, (two side up), lively and perfect, petite, light blush face, realistic skin texture";
+          
+          // ── 2. 智能場景偵測 ──
+          const descLower = (args.scene_description || "").toLowerCase();
+          const customLower = (args.custom_outfit || "").toLowerCase();
+          
+          const isShower = descLower.includes("shower") || descLower.includes("bath") || descLower.includes("washing");
+          const isLewd = descLower.includes("nude") || descLower.includes("naked") || descLower.includes("sex") || descLower.includes("penetration") || descLower.includes("creampie") || descLower.includes("pussy") || descLower.includes("breasts");
+
+          // ── 3. 智能換裝與身材優化 ──
+          let outfitPrompt = "";
+          let nsfwTag = "";
+          let breastSize = "medium breasts"; // 預設
+
+          if (isLewd || isShower) {
+            nsfwTag = "nsfw, ";
+            breastSize = "large breasts"; // 色圖模式自動升級成 large breasts
+            outfitPrompt = isShower 
+              ? "nude, naked body, detailed skin, wet skin, nipples, (highly detailed navel and labia)" 
+              : "nude, naked body, detailed skin, nipples, (highly detailed navel and labia)";
+          }
+
+          if (customLower) {
+            outfitPrompt = args.custom_outfit;
+            if (customLower.includes("lingerie") || customLower.includes("bikini") || customLower.includes("underwear") || customLower.includes("naked")) {
+              nsfwTag = "nsfw, ";
+              breastSize = "large breasts"; // 情趣內衣也算色圖，升級身材
+            }
+          } else if (!isLewd && !isShower) {
+            // 正常服裝邏輯
+            if (currentScene === "School") {
+              outfitPrompt = "white blouse with high collar, short pleated skirt, white socks, purple ribbon bow tie, lace trim details, innocent schoolgirl vibe";
+            } else {
+              // 工作模式 (Tavern / 其他)
+              outfitPrompt = "white blouse with high collar, short pleated skirt, thigh-high stockings, purple ribbon bow tie, lace trim details, headdress, purple frilly apron, cute board girl uniform, garters, garter belt, legwear garter";
+            }
+          }
+          
+          // ── 4. 拼接最終提示詞 (全英文) ──
+          const finalPositive = `${nsfwTag}masterpiece, best quality, ${characterBase}, ${breastSize}, ${outfitPrompt}, ${args.scene_description}`;
+          const negativePrompt = "easynegative, bad, bad anatomy, bad composition, bad feet, bad hands, blurry, cropped, deformed, digit, error, extra limb, extra digit, extra missing fingers, fake, fat, fewer digits, imperfect eyes, inaccurate eyes, inaccurate limb, jpeg artifacts, logo, low quality, lowres, missing fingers, missing limbs, negative_hand, normal quality, painting by bad-artist, signature, skewed eyes, text, ugly, ugly body, unnatural body, unnatural face, username, watermark, worst quality,glossy skin , shiny, 3d render, heavy shading , over saturated , oil painting";
+
+          // ── 🆕 任務登記制：背景異步執行避免超時 ──
+          execCtx.waitUntil((async () => {
+            try {
+              // 1. 提交任務並獲取 ID
+              const result = await drawWithComfyUI(env, finalPositive, negativePrompt);
+              const promptId = result?.prompt_id;
+
+              if (promptId) {
+                // 2. 在資料庫登記任務 (帶上話題 ID 與 用戶 ID)
+                await env.ciallo_db.prepare(
+                  `INSERT INTO pending_images (prompt_id, chat_id, thread_id, user_id, status) VALUES (?, ?, ?, ?, 'pending')`
+                ).bind(promptId, chatId, threadId || null, userId).run();
+                console.log(`📍 [D1] 任務 ${promptId} 已登記 (身材: ${breastSize}, 針對用戶: ${userId})`);
+              } else {
+                console.error("❌ [ComfyUI] 未能獲取 Prompt ID");
+                await env.ciallo_db.prepare(
+                    `INSERT INTO error_logs (user_id, chat_id, error_type, message, details) VALUES (?, ?, ?, ?, ?)`
+                ).bind(userId, chatId, "COMFYUI_NO_ID", "未能獲取 Prompt ID", `Prompt: ${finalPositive.substring(0, 200)}...`).run();
+              }
+            } catch (drawErr: any) {
+              console.error("❌ [ComfyUI] 提交失敗:", drawErr.message);
+              await env.ciallo_db.prepare(
+                `INSERT INTO error_logs (user_id, chat_id, error_type, message, details) VALUES (?, ?, ?, ?, ?)`
+              ).bind(userId, chatId, "COMFYUI_SUBMIT_FAIL", drawErr.message, `Error: ${drawErr.message} | Prompt: ${finalPositive.substring(0, 200)}...`).run();
+            }
+          })());
+
+          currentMessages.push({
+            role: "tool",
+            tool_call_id: toolCall.id,
+            content: "任務已登記到後台。圖片生成後（約 1-2 分鐘）會自動發送。請在回覆中加入『等我一下喔，我現在拍一張...』之類的話。"
+          });
         }
       }
       iteration++;
@@ -331,7 +446,7 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
       `INSERT INTO error_logs (user_id, chat_id, error_type, message, details) VALUES (?, ?, ?, ?, ?)`
     ).bind(userId, chatId, "EMPTY_REPLY", "AI 回傳了空內容", `Iteration: ${iteration}, History: ${messagesPayload.length} messages`).run();
     
-    return "（莎蘿歪了歪頭，似乎在想著要說什麼...）";
+    return { reply: "（莎蘿歪了歪頭，似乎在想著要說什麼...）" };
   }
 
   // ── 6. 解析標籤與 Hard Code 攔截區 ──
@@ -412,7 +527,7 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
     await env.ciallo_db.prepare(
       `UPDATE users SET affection = MAX(0, affection - 50), last_message_time = ?, mood = 'ANGRY' WHERE user_id = ?`
     ).bind(new Date().toISOString(), userId).run();
-    return goreRejection;
+    return { reply: goreRejection };
   }
  
   // 🧠 即時名字萃取：檢測用戶是否在教莎蘿自己的名字
@@ -811,7 +926,7 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
     execCtx.waitUntil(pruneOldMessages(env));
   }
 
-  return finalReplyToUser;
+  return { reply: finalReplyToUser, image: generatedImage || undefined };
 }
 
 

@@ -33,7 +33,7 @@
 ### 2. 🎭 動態時間與季節感知系統
 機器人通過香港時間 (UTC+8) 及季節感知，自動進行 **三段式日常生活演繹**。違反當前時間線的設定將被視為最高優先級的角色崩壞並被杜絕：
 * **校園模式 (06:00 - 15:59)**：身穿高中制服，專注於談論學業、同學和校園八卦，此時絕不提及酒館打工。
-* **酒館打工 (16:00 - 23:59)**：身穿紫羅蘭酒館女僕圍裙，熱情招徠客人、點單、聊酒館日常。
+* **酒館打工 (16:00 - 23:59)**：身穿「cute board girl uniform, purple frilly apron, white blouse with high collar, loose fit, short pleated skirt, thigh-high stockings, purple ribbon bow tie, lace trim details, innocent schoolgirl vibe, headdress」，熱情招徠客人、點單、聊酒館日常。
 * **居家私密 (00:00 - 05:59)**：身穿寬鬆居家睡衣，處於放鬆、慵懶的床頭聊天狀態，話題更具私密性。
 
 ### 3. 🏆 結構化性行為統計與成就解鎖系統

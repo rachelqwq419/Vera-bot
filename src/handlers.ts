@@ -1,10 +1,11 @@
-import { Bot } from "grammy";
+import { Bot, InputFile } from "grammy";
 import type { Env } from "./types";
 import { ADMIN_USER_ID, MARU_USER_ID, LALA_USER_ID, KANON_USER_ID, GIFT_SHOP, ALLOWED_SETSTAT_COLUMNS, FORTUNES, DAILY_QUESTS, MOODS, CG_CATEGORIES, type Mood } from "./constants";import { getAffectionTitle, ensureUserExists } from "./utils";
 import { computeFavoritePlay } from "./achievements";
 import { logAdminAction } from "./utils";
 import { callDeepSeek } from "./deepseek";
 import { analyzeImageWithGemini } from "./gemini";
+import { generateVoice } from "./voice";
 
 export function registerHandlers(bot: Bot, env: Env, execCtx: ExecutionContext): void {
   // ── 全域攔截私訊 (PM) ──
@@ -1011,15 +1012,60 @@ bot.command("addkey", async (ctx) => {
       }
 
       const roomName = (ctx.chat.type !== "private" && 'title' in ctx.chat) ? (ctx.chat as any).title || "群組" : "私人對話";
-      const aiReply = await callDeepSeek(env, execCtx, userId, userName, userMessage, chatId, roomName);
-      if (!aiReply) return; // 如果回覆為空（被去重），則不發送
+      const threadId = ctx.message.message_thread_id;
+      const { reply, image } = await callDeepSeek(env, execCtx, userId, userName, userMessage, chatId, roomName, threadId);
+      if (!reply) return; // 如果回覆為空（被去重），則不發送
+
+      // ── 語音生成邏輯 ──
+      let voiceData: Uint8Array | null = null;
+      
+      try {
+        const user: any = await env.ciallo_db.prepare(`SELECT affection FROM users WHERE user_id = ?`).bind(userId).first();
+        const currentAffection = user?.affection || 0;
+
+        const voiceKeywords = ["錄音", "語音", "聲音", "說話", "錄段音", "聽下妳把聲", "把聲"];
+        const isVoiceRequested = voiceKeywords.some(kw => userMessage.includes(kw));
+        const randomVoiceTrigger = currentAffection >= 30 && Math.random() < 0.10;
+
+        if (env.VOICE_API_URL && (isVoiceRequested || randomVoiceTrigger)) {
+          // 清理一下文字，去掉括號內的內心 OS，只讀出對話內容
+          const cleanReply = reply.replace(/\(.*?\)/g, '').replace(/（.*?）/g, '').trim();
+          if (cleanReply) {
+            console.log(`🎙️ [Voice] 正在為 ${userName} 生成語音...`);
+            voiceData = await generateVoice(env, cleanReply);
+          }
+        }
+      } catch (voiceErr) {
+        console.error("Voice Logic Error:", voiceErr);
+      }
 
       try {
-        await ctx.reply(aiReply, { reply_parameters: { message_id: ctx.message.message_id } });
+        if (voiceData) {
+          // 如果生成了語音，優先發送語音（附帶文字說明）
+          await ctx.replyWithVoice(new InputFile(voiceData), {
+            caption: reply,
+            reply_parameters: { message_id: ctx.message.message_id }
+          });
+        } else if (image) {
+          // 如果有生成圖片，則發送圖片連同文字
+          await ctx.replyWithPhoto(new InputFile(image), {
+            caption: reply,
+            reply_parameters: { message_id: ctx.message.message_id }
+          });
+        } else {
+          // 只有文字回覆
+          await ctx.reply(reply, { reply_parameters: { message_id: ctx.message.message_id } });
+        }
       } catch (e) {
         // 如果回覆原訊息失敗（例如訊息已被刪除），則直接發送
         console.warn("[回覆失敗] 原訊息可能已被刪除，嘗試直接發送回覆。");
-        await ctx.reply(aiReply);
+        if (voiceData) {
+          await ctx.replyWithVoice(new InputFile(voiceData), { caption: reply });
+        } else if (image) {
+          await ctx.replyWithPhoto(new InputFile(image), { caption: reply });
+        } else {
+          await ctx.reply(reply);
+        }
       }
     } catch (error) {
       console.error("DeepSeek API 錯誤:", error);

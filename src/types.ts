@@ -3,6 +3,7 @@ export interface Env {
   DEEPSEEK_API_KEY: string;
   GEMINI_API_KEY: string;
   TAVILY_API_KEY?: string;
+  VOICE_API_URL?: string; // GPT-SoVITS API 地址
   ciallo_db: D1Database;
   VECTOR_INDEX: VectorizeIndex;
   AI: any;
