@@ -1,6 +1,6 @@
 import { Bot } from "grammy";
 import type { Env } from "./types";
-import { ADMIN_USER_ID, MARU_USER_ID,LALA_USER_ID,GIFT_SHOP, ALLOWED_SETSTAT_COLUMNS, FORTUNES, DAILY_QUESTS, MOODS, CG_CATEGORIES, type Mood } from "./constants";import { getAffectionTitle, ensureUserExists } from "./utils";
+import { ADMIN_USER_ID, MARU_USER_ID, LALA_USER_ID, KANON_USER_ID, GIFT_SHOP, ALLOWED_SETSTAT_COLUMNS, FORTUNES, DAILY_QUESTS, MOODS, CG_CATEGORIES, type Mood } from "./constants";import { getAffectionTitle, ensureUserExists } from "./utils";
 import { computeFavoritePlay } from "./achievements";
 import { logAdminAction } from "./utils";
 import { callDeepSeek } from "./deepseek";
@@ -10,8 +10,8 @@ export function registerHandlers(bot: Bot, env: Env, execCtx: ExecutionContext):
   bot.use(async (ctx, next) => {
     if (ctx.chat?.type === "private") {
       const fromId = ctx.from?.id.toString();
-      // 👇 這裡加上了 LALA_USER_ID 的判斷 👇
-      if (fromId === ADMIN_USER_ID || fromId === MARU_USER_ID || fromId === LALA_USER_ID) return next();
+      // 👇 這裡加上了 LALA_USER_ID 和 KANON_USER_ID 的判斷 👇
+      if (fromId === ADMIN_USER_ID || fromId === MARU_USER_ID || fromId === LALA_USER_ID || fromId === KANON_USER_ID) return next();
       // 允許 callback_query (InlineKeyboard 按鈕) 通過
       if (ctx.callbackQuery) return next();
       // 允許 /cg 圖鑑指令通過
@@ -241,6 +241,15 @@ bot.use(async (ctx, next) => {
       try { specialMoments = JSON.parse(user.special_moments || '[]'); } catch (_e) { /* ignore */ }
 
       // 🔞 所有色情追蹤、體位統計與成就移到這裡
+      const orgasmFrequency = user.sex_count > 0 ? ((user.orgasms_given / user.sex_count) * 100).toFixed(1) : "0";
+      let sensitiveZones: Record<string, number> = {};
+      try { sensitiveZones = JSON.parse(user.sensitive_zones || '{}'); } catch { /* ignore */ }
+      const zonesSummary = Object.entries(sensitiveZones)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([k, v]) => `${k}(${v})`)
+        .join('、') || "尚未探索";
+
       const nsfwText = `🔞 【${user.first_name || "客人"} 的私密互動追蹤】
 
 👉 總性交次數：${user.sex_count || 0} | 💋 接吻次數：${user.kiss_count || 0}
@@ -249,6 +258,8 @@ bot.use(async (ctx, next) => {
 🦶 足交次數：${user.footjob_count || 0} | 👐 手交次數：${user.handjob_count || 0}
 🍑 後庭次數：${user.anal_count || 0} | 🎯 顏射/胸射：${user.cum_on_face || 0}/${user.cum_on_tits || 0}
 🌟 讓莎蘿高潮次數：${user.orgasms_given || 0}
+📈 高潮頻率：${orgasmFrequency}%
+🎯 敏感區域：${zonesSummary}
 🏆 最愛玩法：${favoritePlay}
 
 🔞 【體位統計】
@@ -415,6 +426,7 @@ ${specialMoments.length > 0 ? `📜 【特殊時刻】（最近 ${Math.min(3, sp
     const summary = Object.entries(counts).map(([k, v]) => `${emojiMap[k] || '🎁'} ${k} ×${v}`).join('\n');
 
     await ctx.reply(`🎁 【送給莎蘿的禮物清單】\n\n${summary}\n\n共送出 ${gifts.length} 件禮物`);
+  });
 
   // ── /coin (動態金額打賞與送巧克力) ──
   bot.command("coin", async (ctx) => {
@@ -454,6 +466,11 @@ ${specialMoments.length > 0 ? `📜 【特殊時刻】（最近 ${Math.min(3, sp
       let newAffection = user.affection || 0;
       let replyText = "";
 
+      // 👑 至高無上的主人：好感度永遠固定 100
+      if (userId === ADMIN_USER_ID) {
+        newAffection = 100;
+      }
+
       if (amount === 10) {
         // 剛好 10 蚊：送巧克力 (+3)
         gifts.push("巧克力");
@@ -480,7 +497,6 @@ ${specialMoments.length > 0 ? `📜 【特殊時刻】（最近 ${Math.min(3, sp
     } catch (error) {
       console.error("送禮物出錯:", error);
     }
-  });
   });
 
   // ── /fortune ──
@@ -849,7 +865,7 @@ bot.command("addkey", async (ctx) => {
     if (adminId !== ADMIN_USER_ID) return;
 
     const { results } = await env.ciallo_db.prepare(`SELECT * FROM api_keys`).all();
-    if (!results || results.length === 0) return ctx.reply("資料庫入面一條 Key 都無喔～");
+    if (!results || results.length === 0) return ctx.reply("資料庫中一條 Key 都沒有喔～");
 
     let text = "🔑 【API Key 狀態列表】\n";
     for (const row of results as any[]) {
@@ -864,12 +880,17 @@ bot.command("addkey", async (ctx) => {
     if (!ctx.message) return;
     if (ctx.message.from?.is_bot) return;
 
-    // 忽略以 / 開頭的未註冊指令，但「放行」送禮指令給 AI 處理！
+    // 忽略以 / 開頭的指令
     if (ctx.message.text.startsWith("/")) {
-      const cmd = ctx.message.text.toLowerCase();
-      if (!cmd.startsWith("/rose") && !cmd.startsWith("/coin")) {
-        return;
-      }
+      const text = ctx.message.text.toLowerCase();
+      // 這裡列出所有已經註冊過的 command，防止重複處理
+      const registeredCommands = ["/start", "/ciallo", "/profile", "/nsfw", "/leaderboard", "/rank", "/top", "/daily", "/gifts", "/coin", "/fortune", "/temp", "/quest", "/reset", "/resetuser", "/setstat", "/addkey", "/checkkeys", "/cg", "/deletecg"];
+      // 使用精準匹配，防止 /coind 誤傷 /coin
+      const isCmd = registeredCommands.some(cmd => {
+        const parts = text.split(/\s+/);
+        return parts[0] === cmd;
+      });
+      if (isCmd) return;
     }
 
     // 🛑 群組發言過濾機制（防止 Token 爆炸）
@@ -877,13 +898,18 @@ bot.command("addkey", async (ctx) => {
       const botUsername = ctx.me.username;
       const text = ctx.message.text;
       
-      // 判斷條件：是否回覆莎蘿的訊息？
+      // 判斷條件 1：是否回覆莎蘿的訊息？
       const isReplyToBot = ctx.message.reply_to_message?.from?.id === ctx.me.id;
-      // 判斷條件：文字中是否包含 @帳號，或是提到繁體的「莎蘿」或簡體的「莎萝」？
-      const isMentioned = text.includes(`@${botUsername}`) || text.includes("莎蘿") || text.includes("莎萝");
+      
+      // 判斷條件 2：文字中是否包含 @帳號？
+      const isAtMentioned = botUsername && text.includes(`@${botUsername}`);
+      
+      // 判斷條件 3：是否提到名字（繁簡皆可）？
+      const isNameCalled = text.includes("莎蘿") || text.includes("莎萝") || text.includes("Ciallo");
 
       // 如果不是回覆她，也沒有 @她，也沒有直接叫她的名字，就乖乖閉嘴不處理
-      if (!isReplyToBot && !isMentioned) {
+      if (!isReplyToBot && !isAtMentioned && !isNameCalled) {
+        console.log(`[群組過濾] 忽略非提及訊息: "${text.substring(0, 15)}..."`);
         return;
       }
     }
@@ -896,6 +922,7 @@ bot.command("addkey", async (ctx) => {
 
       const roomName = (ctx.chat.type !== "private" && 'title' in ctx.chat) ? (ctx.chat as any).title || "群組" : "私人對話";
       const aiReply = await callDeepSeek(env, execCtx, userId, userName, ctx.message.text, chatId, roomName);
+      if (!aiReply) return; // 如果回覆為空（被去重），則不發送
       await ctx.reply(aiReply, { reply_parameters: { message_id: ctx.message.message_id } });
     } catch (error) {
       console.error("DeepSeek API 錯誤:", error);

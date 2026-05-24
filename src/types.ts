@@ -71,4 +71,5 @@ export interface UserRecord {
   // Phase 2: 結構化用戶筆記 + 場景追蹤
   user_notes: string;    // JSON: {"name":"小明","nickname":"..."}
   last_scene: string;    // 上次場景標籤: "school" | "bar" | "home" | ""
+  sensitive_zones: string; // JSON: {"ears": 5, "neck": 2}
 }

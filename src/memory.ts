@@ -15,17 +15,35 @@ export async function summarizeMemory(
   chatId: string,
 ) {
   // 從群組共用記憶池擷取最近對話（涵蓋所有參與者，提供完整脈絡）
-  const { results: recentMsgs } = await env.ciallo_db.prepare(
-    `SELECT role, content FROM messages WHERE chat_id = ? ORDER BY id DESC LIMIT 25`
-  ).bind(chatId).all();
+  // 並聯表查詢發言者的名稱與稱呼，確保總結時人名精準
+  const { results: recentMsgs } = await env.ciallo_db.prepare(`
+    SELECT m.role, m.content, u.first_name, u.user_notes
+    FROM messages m
+    LEFT JOIN users u ON m.user_id = u.user_id
+    WHERE m.chat_id = ?
+    ORDER BY m.id DESC LIMIT 50
+  `).bind(chatId).all();
 
   if (!recentMsgs || recentMsgs.length === 0) {
     console.log(`記憶總結跳過: ${userName} — 無最近訊息`);
     return;
   }
 
+  let lastUserNameInHistory = "客人";
   const historyText = (recentMsgs as any[]).reverse()
-    .map(m => `${m.role === 'user' ? '客人' : '莎蘿'}: ${m.content}`)
+    .map(m => {
+      if (m.role === 'user') {
+        let name = m.first_name || "未知客人";
+        try {
+          const notes = JSON.parse(m.user_notes || '{}');
+          if (notes["稱呼"]) name = notes["稱呼"];
+        } catch {}
+        lastUserNameInHistory = name;
+        return `${name}: ${m.content.replace(/^\[.*?\]\s*/, '')}`;
+      } else {
+        return `莎蘿 (對 ${lastUserNameInHistory} 回覆): ${m.content}`;
+      }
+    })
     .join('\n');
 
   const summaryPrompt = `
@@ -40,7 +58,7 @@ ${historyText}
 
 【輸出格式】（嚴格遵守，用 JSON 輸出，不要其他任何文字）：
 {
-  "summary": "總結文字（100字以內，第三人稱客觀描述。必須合併「目前長期記憶」與「近期對話」中關於此客人的新進展。舊記憶中仍然有效的資訊（喜好、關係里程碑、特殊事件）必須保留，只新增或更新近期變化。）",
+  "summary": "總結文字（300字以內，第三人稱客觀描述。必須合併「目前長期記憶」與「近期對話」中關於此客人的新進展。舊記憶中仍然有效的資訊（喜好、關係里程碑、特殊事件）必須保留，只新增或更新近期變化。）",
   "likes": ["喜歡的事物1", "不重複列出", "合併新舊"],
   "dislikes": ["討厭的事物1", "不重複列出", "合併新舊"]
 }
@@ -54,7 +72,7 @@ ${historyText}
 `;
 
 try {
-    // 改用有 Fallback 嘅函數
+    // 改用有 Fallback 的函數
     const data = await fetchWithFallback(env, {
       model: "deepseek-v4-pro", 
       messages: [{ role: "system", content: summaryPrompt }],

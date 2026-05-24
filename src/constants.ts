@@ -3,8 +3,9 @@ export const ADMIN_USER_ID = "1039189463";
 export const MARU_USER_ID = "6172812239";    // 舞瑠的 TG ID
 export const BOSS_ID = "7804622477";         // 👑 瑪麗老闆的 TG ID
 export const LALA_USER_ID = "6299565972";    // 🌸 菈菈的 TG ID
+export const KANON_USER_ID = "7234543848";   // 🎹 花音的 TG ID
 export const BOSS_USERNAME = "@Merryhiruwa"; // 👑 瑪麗老闆的 TG 帳號
-export const HISTORY_LIMIT = 30;       // 每次請求攜帶的歷史訊息條數
+export const HISTORY_LIMIT = 50;       // 每次請求攜帶的歷史訊息條數
 
 /** 允許透過 /setstat 直接修改的欄位白名單（防止 SQL Injection） */
 export const ALLOWED_SETSTAT_COLUMNS: readonly string[] = [
@@ -83,5 +84,9 @@ export const MOODS = {
   ANGRY:    { emoji: "😤", label: "生氣",    description: "冷淡回應，扣分加重，不願配合" },
   AROUSED:  { emoji: "🔥", label: "興奮",    description: "性愛狀態中被挑起慾望，語氣嬌喘、主動迎合" },
   LUST:     { emoji: "💗", label: "淫亂",    description: "完全發情，極度渴望被侵犯，語氣大膽放蕩，主動索求" },
+  HUNGRY:   { emoji: "🍴", label: "飢餓",    description: "肚子餓了，語氣變軟，會撒嬌要求請客食嘢" },
+  MESSY:    { emoji: "🫠", label: "失神",    description: "連續高潮後大腦空白，語氣破碎且失去理智，只會發出簡單呻吟" },
+  WANTING:  { emoji: "🫦", label: "渴望",    description: "被強烈挑逗但未得到滿足，語氣焦慮渴求，主動用身體索求" },
+  SHAMEFUL: { emoji: "🫣", label: "恥辱",    description: "在羞恥情境下被迫互動，語氣極度臉紅、求饒但身體有反應" },
 } as const;
 export type Mood = keyof typeof MOODS;

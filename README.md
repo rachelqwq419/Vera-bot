@@ -2,7 +2,7 @@
 > **基於 Cloudflare Workers + D1 Database + DeepSeek API 的二次元傲嬌看板娘與私密互動 Telegram 機器人**
 
 [![Tech Stack](https://img.shields.io/badge/Stack-TypeScript%20%7C%20Cloudflare%20Workers%20%7C%20D1%20Database-blue)](https://workers.cloudflare.com/)
-[![LLM Engine](https://img.shields.io/badge/LLM-DeepSeek--v4--flash-green)](https://api.deepseek.com)
+[![LLM Engine](https://img.shields.io/badge/LLM-DeepSeek--v4--pro-green)](https://api.deepseek.com)
 [![Bot Framework](https://img.shields.io/badge/Framework-grammy.js-yellow)](https://grammy.dev/)
 [![NSFW Content](https://img.shields.io/badge/Content-NSFW%20%2F%20Erotic%20Roleplay-red)](#)
 
@@ -55,7 +55,7 @@
 
 * **語言 / 運行環境**：TypeScript / Cloudflare Workers (Wrangler v4)
 * **機器人框架**：`grammy` (基於 Cloudflare-mod Webhook 模式優化)
-* **LLM 模型**：`deepseek-v4-flash` (兼具高性能極速響應與超低 Token 成本)
+* **LLM 模型**：`deepseek-v4-pro` (兼具高性能與深度解析能力)
 * **數據庫引擎**：Cloudflare D1 (分散式 SQLite 邊緣數據庫)
 * **版本控制**：Git & GitHub 完全集成
 
