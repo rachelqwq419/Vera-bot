@@ -34,12 +34,23 @@ export async function recordSpecialMoment(env: Env, userId: string, event: strin
 }
 
 /** 記錄管理員操作 */
-export async function logAdminAction(env: Env, adminId: string, targetUserId: string, action: string, details: string) {
+export async function logAdminAction(env: Env, adminId: string, targetUserId: string, action: string, details: string = ''): Promise<void> {
+  await env.ciallo_db.prepare(
+    `INSERT INTO admin_logs (admin_id, target_user_id, action, details) VALUES (?, ?, ?, ?)`
+  ).bind(adminId, targetUserId, action, details).run();
+}
+
+/**
+ * 記錄錯誤日誌供後台診斷
+ */
+export async function logError(env: Env, userId: string | null, chatId: string | null, type: string, message: string, details: string = ''): Promise<void> {
   try {
     await env.ciallo_db.prepare(
-      `INSERT INTO admin_logs (admin_id, target_user_id, action, details) VALUES (?, ?, ?, ?)`
-    ).bind(adminId, targetUserId, action, details).run();
-  } catch (_e) { /* silently fail */ }
+      `INSERT INTO error_logs (user_id, chat_id, error_type, message, details) VALUES (?, ?, ?, ?, ?)`
+    ).bind(userId, chatId, type, message, details).run();
+  } catch (e) {
+    console.error("Failed to log error to DB:", e);
+  }
 }
 
 /** 確保用戶記錄存在（供指令 handler 使用，避免只打指令不聊天的用戶無紀錄） */

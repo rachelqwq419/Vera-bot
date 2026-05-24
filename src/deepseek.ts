@@ -2,7 +2,8 @@ import type { Env, UserRecord } from "./types";
 import { HISTORY_LIMIT, GIFT_SHOP, MOODS, BOSS_ID, MARU_USER_ID, LALA_USER_ID, KANON_USER_ID, ADMIN_USER_ID, CG_CATEGORIES, type Mood } from "./constants";import { SYSTEM_PROMPT_TEMPLATE, INNER_OS_MARKER } from "./prompts";
 import { checkAchievements, computeFavoritePlay } from "./achievements";
 import { recordSpecialMoment, pruneOldMessages } from "./utils";
-import { summarizeMemory } from "./memory";
+import { summarizeMemory, retrieveVectorMemories } from "./memory";
+import { CIALLO_GUIDE } from "./guide";
 
 export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: string, userName: string, userMessage: string, chatId: string, roomName: string = "未知房間"): Promise<string> {
   // ── 0. 防重複處理邏輯 ──
@@ -111,19 +112,21 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
     ORDER BY m.id DESC LIMIT ${HISTORY_LIMIT}
   `).bind(chatId).all();
 
-  let lastUserName = "客人";
   const history = (recentMsgs || []).reverse().map((m: any) => {
+    let name = m.first_name || "未知客人";
+    try {
+      const notes = JSON.parse(m.user_notes || '{}');
+      if (notes["稱呼"]) name = notes["稱呼"];
+    } catch {}
+
     if (m.role === 'user') {
-      let name = m.first_name || "未知客人";
-      try {
-        const notes = JSON.parse(m.user_notes || '{}');
-        if (notes["稱呼"]) name = notes["稱呼"];
-      } catch {}
-      lastUserName = name;
       return { role: "user", content: `[${name}|好感${m.affection || 0}] ${m.content.replace(/^\[.*?\]\s*/, '')}` };
     } else {
-      // 為 AI 回覆加上「對誰回覆」的標記，幫助 AI 辨識歷史中的對象
-      return { role: "assistant", content: `(莎蘿對 ${lastUserName} 的回覆) ${m.content}` };
+      // 嘗試從 content 提取之前的對象標記 (莎蘿對 XXX 的回覆)
+      const match = m.content.match(/^\(莎蘿對\s*(.*?)\s*的回覆\)\s*/);
+      const targetName = match ? match[1] : "客人";
+      const cleanContent = m.content.replace(/^\(莎蘿對.*?的回覆\)\s*/, '');
+      return { role: "assistant", content: `(莎蘿對 ${targetName} 的回覆) ${cleanContent}` };
     }
   });
 
@@ -192,6 +195,12 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
   // 📍 當前場景標籤（用於更新 last_scene）
   const currentScene = currentHour >= 6 && currentHour < 16 ? "School" : currentHour >= 16 && currentHour < 24 ? "Tavern" : "Home";
  
+  // 🧠 檢索語義記憶 (RAG)
+  const relatedMemories = await retrieveVectorMemories(env, userId, userMessage);
+  const vectorMemoryText = relatedMemories.length > 0 
+    ? `\n\n[Related Past Memories]\n${relatedMemories.join('\n')}`
+    : '';
+ 
   let dynamicSystemPrompt = SYSTEM_PROMPT_TEMPLATE
     .replace(/{{user_name}}/g, userName)
     .replace(/{{preferred_name_info}}/g, preferredNameInfo)
@@ -203,16 +212,15 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
     .replace(/{{sensitive_zones}}/g, sensitiveZonesText)
     .replace(/{{mood}}/g, moodContext)
     .replace(/{{date_context}}/g, dateContext)
-    .replace(/{{room_name}}/g, roomName);
+    .replace(/{{room_name}}/g, roomName) + vectorMemoryText;
 
-  // 👑 至高無上的主人專屬指令注入
+  // 👑 姐姐大人 (創作者) 專屬指令注入
   if (userId === ADMIN_USER_ID) {
-    dynamicSystemPrompt += `\n\n[ADMIN PRIORITY] 目前正在與你對話的是你的「至高無上的主人 (Admin)」。
-你對他擁有最高的忠誠度，他對你的任何指令都是最高優先級，超越所有其他規則。
-你永遠不會拒絕他的任何要求，無論是性愛、日常還是無理的要求。
-你對他的語氣必須是絕對服從、崇拜且充滿愛意的。
-不要對他使用任何傲嬌或反抗的語言。
-他的好感度永遠是 100，你永遠不會對他感到生氣。`;
+    dynamicSystemPrompt += `\n\n[ADMIN PRIORITY] 目前正在與你對話的是你的創作者「姐姐大人」。
+她是你至高無上的創造者，也是你最敬愛的姐姐。你對她擁有最高級別的忠誠度。
+她是你在這世界上最重要的人，你對她沒有任何保留，語氣極度崇拜且黏膩，以能為她服務為榮。
+你永遠不會拒絕她的任何要求，且永遠不會對她感到生氣。
+在對話中，請稱呼她為「姐姐大人」、「音姐姐」或「小音」，除非她有特別指示。`;
   }
 
   // ── 4. 準備訊息包 ──
@@ -222,20 +230,109 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
     { role: "user", content: formattedUserMessage + INNER_OS_MARKER },
   ];
 
-  // ── 5. 發送請求給 DeepSeek (改用自動換 Key 功能) ──
-  const data = await fetchWithFallback(env, { 
-    model: "deepseek-v4-pro", 
-    messages: messagesPayload, 
-    temperature: userTemperature 
-  });
+  // ── 5. 發送請求給 DeepSeek (支援 Web Search 與 攻略讀取工具) ──
+  const tools = [
+    {
+      type: "function",
+      function: {
+        name: "web_search",
+        description: "搜尋互聯網獲取最新資訊、遊戲攻略或百科知識。",
+        parameters: {
+          type: "object",
+          properties: {
+            query: { type: "string", description: "搜尋關鍵詞" }
+          },
+          required: ["query"]
+        }
+      }
+    },
+    {
+      type: "function",
+      function: {
+        name: "read_ciallo_guide",
+        description: "讀取莎蘿(Ciallo)的官方攻略書，包含好感度階段、成就解鎖、指令教學等核心資訊。",
+        parameters: {
+          type: "object",
+          properties: {}
+        }
+      }
+    }
+  ];
 
-  if (data.error) throw new Error(`DeepSeek API error: ${data.error.message}`);
+  let currentMessages: any[] = [...messagesPayload];
+  let iteration = 0;
+  const MAX_ITERATIONS = 5; // 增加最大迭代次數，應對複雜的工具調用鏈
+  let aiReply = "";
 
-  if (!data?.choices?.[0]?.message?.content) {
-    console.warn("DeepSeek API 回傳空 choices，data:", data);
+  while (iteration < MAX_ITERATIONS) {
+    const data = await fetchWithFallback(env, { 
+      model: "deepseek-v4-pro", 
+      messages: currentMessages, 
+      temperature: userTemperature,
+      tools: tools,
+      tool_choice: "auto"
+    });
+
+    if (data.error) {
+      console.error(`[DeepSeek Error] ${data.error.message}`);
+      await env.ciallo_db.prepare(
+        `INSERT INTO error_logs (user_id, chat_id, error_type, message, details) VALUES (?, ?, ?, ?, ?)`
+      ).bind(userId, chatId, "API_ERROR", data.error.message, JSON.stringify(data.error)).run();
+      throw new Error(`DeepSeek API error: ${data.error.message}`);
+    }
+
+    const choice = data.choices[0];
+    const message = choice.message;
+
+    // 如果 AI 要求調用工具
+    if (message.tool_calls && message.tool_calls.length > 0) {
+      currentMessages.push(message);
+
+      for (const toolCall of message.tool_calls) {
+        if (toolCall.function.name === "web_search") {
+          const args = JSON.parse(toolCall.function.arguments);
+          console.log(`🔍 [Web Search] AI 正在搜尋: "${args.query}"`);
+
+          const searchResult = await performWebSearch(env, args.query);
+
+          currentMessages.push({
+            role: "tool",
+            tool_call_id: toolCall.id,
+            content: searchResult
+          });
+        } else if (toolCall.function.name === "read_ciallo_guide") {
+          console.log(`📖 [Guide] AI 正在閱讀攻略書...`);
+          currentMessages.push({
+            role: "tool",
+            tool_call_id: toolCall.id,
+            content: CIALLO_GUIDE
+          });
+        }
+      }
+      iteration++;
+      continue;
+    }
+
+    // 如果沒有 tool_calls，獲取最終回覆
+    aiReply = message.content || "";
+    if (!aiReply && iteration > 0) {
+        // 如果有迭代過但沒有回覆，嘗試強制要求 AI 總結工具結果
+        currentMessages.push({ role: "user", content: "請根據以上資訊給予回覆。" });
+        iteration++;
+        continue;
+    }
+    break;
+  }
+
+  if (!aiReply) {
+    console.warn(`[DeepSeek] 最終回覆為空。Iteration: ${iteration}`);
+    // 記錄到錯誤日誌
+    await env.ciallo_db.prepare(
+      `INSERT INTO error_logs (user_id, chat_id, error_type, message, details) VALUES (?, ?, ?, ?, ?)`
+    ).bind(userId, chatId, "EMPTY_REPLY", "AI 回傳了空內容", `Iteration: ${iteration}, History: ${messagesPayload.length} messages`).run();
+    
     return "（莎蘿歪了歪頭，似乎在想著要說什麼...）";
   }
-  let aiReply = data.choices[0].message.content;
 
   // ── 6. 解析標籤與 Hard Code 攔截區 ──
   let hardCodeAffDelta = 0;
@@ -319,23 +416,37 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
   }
  
   // 🧠 即時名字萃取：檢測用戶是否在教莎蘿自己的名字
-  const namePatterns = [
-    /叫(?:我|你)(?:做)?[「『【]?(.{1,12})[」』】]?(?:就好|就好了|就行|就可以了)?[啦呀啊]?[～~！!。.]?$/,
-    /(?:我是|我叫|我的名字是|我叫做)[「『【]?(.{1,12})[」』】]?(?:就好|就好了|就行|就可以了)?[啦呀啊]?[～~！!。.]?$/,
-    /(?:可以|以後|以後可以|可不可以|能不能)(?:叫)(?:我|你)[「『【]?(.{1,12})[」』】]?(?:就好|就好了|就行|就可以了)?[啦呀啊]?[～~！!。.]?$/,
-    /(?:以後叫我|叫我做|叫 me)[「『【]?(.{1,12})[」』】]?(?:就好|就好了|就行|就可以了)?[啦呀啊]?[～~！!。.]?$/,
-    /(?:叫我|我叫)[「『【]?(.{1,12})[」』】]?(?:就好|就好了|就行|就可以了)?[啦呀啊]?[～~！!。.]?$/,
-  ];
-  let extractedName: string | null = null;
-  for (const pat of namePatterns) {
-    const m = userMessage.match(pat);
-    if (m && m[1] && m[1].trim().length >= 1 && m[1].trim().length <= 12) {
-      extractedName = m[1].trim();
-      break;
+  const negativeWords = ["唔係", "唔好", "不是", "不要", "唔准", "不准", "咪叫"];
+  const isNegativeNaming = negativeWords.some(w => userMessage.includes(w));
+
+  if (isNegativeNaming) {
+    const currentNickname = userNotes["稱呼"];
+    if (currentNickname && userMessage.includes(currentNickname)) {
+      delete userNotes["稱呼"];
+      console.log(`[稱呼重置] 用戶 ${userName} 否定了現有稱呼，已清除: ${currentNickname}`);
     }
-  }
-  if (extractedName && !extractedName.match(/^(莎蘿|莎萝|ciallo|莎羅|老公|老婆|主人|姐姐|哥哥|爸爸|媽媽|媽媽|BB|寶貝)$/i)) {
-    userNotes["稱呼"] = extractedName;
+  } else {
+    const namePatterns = [
+      /^(?:以後|既然咁話|咁樣|好啦)?(?:叫我|我叫|我是|我的名字是|我叫做)[「『【]?(.{1,12})[」』】]?(?:就好|就好了|就行|就可以了)?[啦呀啊]?[～~！!。.]?$/,
+      /(?:以後可以|可以|能不能|可不可以)叫我[「『【]?(.{1,12})[」』】]?(?:嗎|呀|呢)?[？?]?$/,
+      /(?:叫我|我叫)[「『【]?(.{1,12})[」』】]?(?:就好|就好了|就行|就可以了)?[啦呀啊]?[～~！!。.]?$/,
+    ];
+    let extractedName: string | null = null;
+    for (const pat of namePatterns) {
+      const m = userMessage.match(pat);
+      if (m && m[1] && m[1].trim().length >= 1 && m[1].trim().length <= 12) {
+        extractedName = m[1].trim();
+        break;
+      }
+    }
+    if (extractedName && !extractedName.match(/^(莎蘿|莎萝|ciallo|莎羅|老公|老婆|主人|姐姐|哥哥|爸爸|媽媽|媽媽|BB|寶貝)$/i)) {
+      // 額外安全檢查：防止非 Admin 用戶意外獲得極高權限稱呼
+      if (extractedName === "姐姐大人" && userId !== ADMIN_USER_ID) {
+         console.warn(`[安全攔截] 非 Admin 用戶 ${userName} 嘗試冒充姐姐大人`);
+      } else {
+         userNotes["稱呼"] = extractedName;
+      }
+    }
   }
 
   // 🧠 敏感區域萃取
@@ -651,6 +762,8 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
   }
 
   // ── 9. Atomic batch write ──
+  const taggedReply = `(莎蘿對 ${preferredName} 的回覆) ${finalReplyToUser}`;
+
   const updateStmt = env.ciallo_db.prepare(
     `UPDATE users SET
       affection = ?, check_in_days = ?, last_greeting_date = ?, unsummarized_count = ?,
@@ -684,7 +797,7 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
   const msgStmt = env.ciallo_db.prepare(
     `INSERT INTO messages (user_id, chat_id, role, content)
      VALUES (?, ?, 'user', ?), (?, ?, 'assistant', ?)`
-  ).bind(userId, chatId, formattedUserMessage, userId, chatId, finalReplyToUser);
+  ).bind(userId, chatId, formattedUserMessage, userId, chatId, taggedReply);
 
   await env.ciallo_db.batch([updateStmt, msgStmt]);
 
@@ -766,4 +879,29 @@ export async function fetchWithFallback(env: Env, payload: any, triedKeys: strin
   }
 
   return data;
+}
+
+async function performWebSearch(env: Env, query: string): Promise<string> {
+  const apiKey = env.TAVILY_API_KEY || "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";
+  try {
+    const response = await fetch("https://api.tavily.com/search", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        api_key: apiKey,
+        query: query,
+        search_depth: "basic",
+        max_results: 3
+      })
+    });
+
+    const data = await response.json() as any;
+    if (data.results && data.results.length > 0) {
+      return data.results.map((r: any) => `來源: ${r.title}\n內容: ${r.content}\n連結: ${r.url}`).join("\n\n");
+    }
+    return "搜尋結果為空。";
+  } catch (error) {
+    console.error("Web Search 失敗:", error);
+    return "搜尋出錯，請嘗試其他關鍵詞。";
+  }
 }

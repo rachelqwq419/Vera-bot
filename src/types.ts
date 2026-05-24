@@ -1,7 +1,11 @@
 export interface Env {
   BOT_TOKEN: string;
   DEEPSEEK_API_KEY: string;
+  GEMINI_API_KEY: string;
+  TAVILY_API_KEY?: string;
   ciallo_db: D1Database;
+  VECTOR_INDEX: VectorizeIndex;
+  AI: any;
 }
 
 /** 使用者資料型別（對齊 schema.sql） */

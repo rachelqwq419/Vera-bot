@@ -29,19 +29,21 @@ export async function summarizeMemory(
     return;
   }
 
-  let lastUserNameInHistory = "客人";
   const historyText = (recentMsgs as any[]).reverse()
     .map(m => {
+      let name = m.first_name || "未知客人";
+      try {
+        const notes = JSON.parse(m.user_notes || '{}');
+        if (notes["稱呼"]) name = notes["稱呼"];
+      } catch {}
+
       if (m.role === 'user') {
-        let name = m.first_name || "未知客人";
-        try {
-          const notes = JSON.parse(m.user_notes || '{}');
-          if (notes["稱呼"]) name = notes["稱呼"];
-        } catch {}
-        lastUserNameInHistory = name;
         return `${name}: ${m.content.replace(/^\[.*?\]\s*/, '')}`;
       } else {
-        return `莎蘿 (對 ${lastUserNameInHistory} 回覆): ${m.content}`;
+        const match = m.content.match(/^\(莎蘿對\s*(.*?)\s*的回覆\)\s*/);
+        const targetName = match ? match[1] : "客人";
+        const cleanContent = m.content.replace(/^\(莎蘿對.*?的回覆\)\s*/, '');
+        return `莎蘿 (對 ${targetName} 回覆): ${cleanContent}`;
       }
     })
     .join('\n');
@@ -118,8 +120,87 @@ try {
        WHERE user_id = ?`
     ).bind(newSummary, JSON.stringify(likes), JSON.stringify(dislikes), userId).run();
 
+    // ── 🆕 新增：將總結存入向量資料庫 ──
+    try {
+      await storeVectorMemory(env, userId, `[Memory Summary] ${newSummary}`);
+    } catch (ve) {
+      console.error("向量記憶存儲失敗:", ve);
+    }
+
     console.log(`已成功總結 ${userName} 的記憶: ${newSummary}`);
   } catch (e) {
     console.error("記憶總結失敗:", e);
+  }
+}
+
+/**
+ * 將文字轉化為向量並存入 Vectorize
+ */
+export async function storeVectorMemory(env: Env, userId: string, text: string) {
+  if (!env.VECTOR_INDEX || !env.AI) return;
+
+  // 1. 生成向量 (使用 bge-m3, 1024 dims)
+  const embeddingResponse = await env.AI.run("@cf/baai/bge-m3", {
+    text: [text],
+  });
+  const vector = embeddingResponse.data[0];
+
+  // 2. 生成唯一 ID
+  const id = crypto.randomUUID();
+
+  // 3. 存入 D1 (存儲原始文字)
+  await env.ciallo_db.prepare(
+    `INSERT INTO vector_memories (id, user_id, content) VALUES (?, ?, ?)`
+  ).bind(id, userId, text).run();
+
+  // 4. 存入 Vectorize
+  await env.VECTOR_INDEX.upsert([
+    {
+      id: id,
+      values: vector,
+      metadata: { user_id: userId },
+    },
+  ]);
+
+  console.log(`📍 [Vectorize] 已存入新的語義記憶 (#${id.substring(0, 8)})`);
+}
+
+/**
+ * 根據當前訊息檢索相關記憶
+ */
+export async function retrieveVectorMemories(env: Env, userId: string, query: string): Promise<string[]> {
+  if (!env.VECTOR_INDEX || !env.AI) return [];
+
+  try {
+    // 1. 將查詢轉化為向量
+    const embeddingResponse = await env.AI.run("@cf/baai/bge-m3", {
+      text: [query],
+    });
+    const vector = embeddingResponse.data[0];
+
+    // 2. 檢索最相似的 3 條記憶 (過濾該用戶)
+    const matches = await env.VECTOR_INDEX.query(vector, {
+      topK: 3,
+      filter: { user_id: userId },
+    });
+
+    if (matches.matches.length === 0) return [];
+
+    // 3. 從 D1 抓取對應文字 (過濾分數 > 0.6 的記憶)
+    const ids = matches.matches
+      .filter((m: any) => m.score > 0.6)
+      .map((m: any) => m.id);
+
+    if (ids.length === 0) return [];
+
+    const placeholders = ids.map(() => "?").join(",");
+    const { results } = await env.ciallo_db.prepare(
+      `SELECT content FROM vector_memories WHERE id IN (${placeholders})`
+    ).bind(...ids).all();
+
+    return (results as any[]).map(r => r.content);
+  } catch (e) {
+    console.error("向量檢索失敗:", e);
+    return [];
   }
 }

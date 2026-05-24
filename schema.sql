@@ -111,3 +111,14 @@ CREATE TABLE IF NOT EXISTS daily_quests (
     FOREIGN KEY(user_id) REFERENCES users(user_id)
 );
 
+-- 錯誤與診斷日誌表
+CREATE TABLE IF NOT EXISTS error_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id TEXT,
+    chat_id TEXT,
+    error_type TEXT,
+    message TEXT,
+    details TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+

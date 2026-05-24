@@ -5,7 +5,7 @@ export const BOSS_ID = "7804622477";         // 👑 瑪麗老闆的 TG ID
 export const LALA_USER_ID = "6299565972";    // 🌸 菈菈的 TG ID
 export const KANON_USER_ID = "7234543848";   // 🎹 花音的 TG ID
 export const BOSS_USERNAME = "@Merryhiruwa"; // 👑 瑪麗老闆的 TG 帳號
-export const HISTORY_LIMIT = 50;       // 每次請求攜帶的歷史訊息條數
+export const HISTORY_LIMIT = 30;       // 減少歷史條數以穩定模型回覆
 
 /** 允許透過 /setstat 直接修改的欄位白名單（防止 SQL Injection） */
 export const ALLOWED_SETSTAT_COLUMNS: readonly string[] = [

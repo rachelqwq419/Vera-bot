@@ -4,6 +4,7 @@ import { ADMIN_USER_ID, MARU_USER_ID, LALA_USER_ID, KANON_USER_ID, GIFT_SHOP, AL
 import { computeFavoritePlay } from "./achievements";
 import { logAdminAction } from "./utils";
 import { callDeepSeek } from "./deepseek";
+import { analyzeImageWithGemini } from "./gemini";
 
 export function registerHandlers(bot: Bot, env: Env, execCtx: ExecutionContext): void {
   // ── 全域攔截私訊 (PM) ──
@@ -380,6 +381,32 @@ ${specialMoments.length > 0 ? `📜 【特殊時刻】（最近 ${Math.min(3, sp
     await ctx.reply(`🔧 [GM] 已將 ${targetName} 的全部數據清零（好感、成就、性行為統計、對話記錄）。`);
   });
 
+  // ── /clearmemory (GM only, 只清除記憶/筆記/敏感區，保留好感與統計) ──
+  bot.command("clearmemory", async (ctx) => {
+    const adminId = ctx.message?.from?.id.toString();
+    if (adminId !== ADMIN_USER_ID) return ctx.reply("你不是 GM，無法使用這個指令。");
+
+    let targetUserId = adminId;
+    let targetName = ctx.message?.from?.first_name || "你";
+
+    const targetMsg = ctx.message?.reply_to_message;
+    if (targetMsg?.from?.id) {
+      targetUserId = targetMsg.from.id.toString();
+      targetName = targetMsg.from.first_name || "該客人";
+    }
+
+    await env.ciallo_db.prepare(`
+      UPDATE users SET
+        conversation_summary = '',
+        user_notes = '{}',
+        sensitive_zones = '{}',
+        unsummarized_count = 0
+      WHERE user_id = ?
+    `).bind(targetUserId).run();
+
+    await ctx.reply(`🧹 [GM] 已清空 ${targetName} 的長期記憶、用戶筆記與敏感帶數據。莎蘿現在對 ${targetName} 的細節已經「失憶」囉！`);
+  });
+
   // ── /daily ──
   bot.command("daily", async (ctx) => {
     const userId = ctx.message?.from?.id.toString();
@@ -604,10 +631,10 @@ ${specialMoments.length > 0 ? `📜 【特殊時刻】（最近 ${Math.min(3, sp
   });
 
   // ── /addcg (GM only, 發送圖片 + caption 指令) ──
-  bot.on(":photo", async (ctx) => {
-    if (!ctx.message) return;
+  bot.on(":photo", async (ctx, next) => {
+    if (!ctx.message) return next();
     const caption = ctx.message.caption || '';
-    if (!caption.startsWith('/addcg')) return;
+    if (!caption.startsWith('/addcg')) return next();
     const adminId = ctx.message.from.id.toString();
     if (adminId !== ADMIN_USER_ID) return;
 
@@ -627,6 +654,31 @@ ${specialMoments.length > 0 ? `📜 【特殊時刻】（最近 ${Math.min(3, sp
 
     const displayName = CG_CATEGORIES[category] || category;
     await ctx.reply(`✅ 成功將圖片加入【${displayName}】分類！`);
+  });
+
+  // ── /checklogs (GM only) ──
+  bot.command("checklogs", async (ctx) => {
+    const adminId = ctx.message?.from?.id.toString();
+    if (adminId !== ADMIN_USER_ID) return ctx.reply("你不是 GM，無法使用這個指令。");
+
+    try {
+      const { results } = await env.ciallo_db.prepare(
+        `SELECT * FROM error_logs ORDER BY id DESC LIMIT 5`
+      ).all();
+
+      if (!results || results.length === 0) {
+        return ctx.reply("目前沒有任何錯誤日誌。");
+      }
+
+      let logText = "📑 【最近 5 條診斷日誌】\n\n";
+      for (const log of (results as any[])) {
+        logText += `⏰ ${log.created_at}\n👤 用戶: ${log.user_id}\n⚠️ 類型: ${log.error_type}\n💬 訊息: ${log.message}\n🔍 詳情: ${log.details.substring(0, 100)}${log.details.length > 100 ? '...' : ''}\n\n`;
+      }
+      await ctx.reply(logText);
+    } catch (error) {
+      console.error("讀取日誌出錯:", error);
+      await ctx.reply("讀取日誌時發生錯誤。");
+    }
   });
 
   // ── /deletecg (GM only, 列出或刪除 CG) ──
@@ -875,19 +927,21 @@ bot.command("addkey", async (ctx) => {
     await ctx.reply(text);
   });
 
-  // ── 一般文字訊息 ──
-  bot.on("message:text", async (ctx) => {
+  // ── 一般訊息 (文字 或 圖片) ──
+  bot.on(["message:text", "message:photo"], async (ctx) => {
     if (!ctx.message) return;
     if (ctx.message.from?.is_bot) return;
 
+    let userMessage = ctx.message.text || ctx.message.caption || "";
+
     // 忽略以 / 開頭的指令
-    if (ctx.message.text.startsWith("/")) {
-      const text = ctx.message.text.toLowerCase();
+    if (userMessage.startsWith("/")) {
+      const lowerMsg = userMessage.toLowerCase();
       // 這裡列出所有已經註冊過的 command，防止重複處理
-      const registeredCommands = ["/start", "/ciallo", "/profile", "/nsfw", "/leaderboard", "/rank", "/top", "/daily", "/gifts", "/coin", "/fortune", "/temp", "/quest", "/reset", "/resetuser", "/setstat", "/addkey", "/checkkeys", "/cg", "/deletecg"];
+      const registeredCommands = ["/start", "/ciallo", "/profile", "/nsfw", "/leaderboard", "/rank", "/top", "/daily", "/gifts", "/coin", "/fortune", "/temp", "/quest", "/reset", "/resetuser", "/setstat", "/addkey", "/checkkeys", "/cg", "/deletecg", "/checklogs"];
       // 使用精準匹配，防止 /coind 誤傷 /coin
       const isCmd = registeredCommands.some(cmd => {
-        const parts = text.split(/\s+/);
+        const parts = lowerMsg.split(/\s+/);
         return parts[0] === cmd;
       });
       if (isCmd) return;
@@ -896,20 +950,19 @@ bot.command("addkey", async (ctx) => {
     // 🛑 群組發言過濾機制（防止 Token 爆炸）
     if (ctx.chat.type !== "private") {
       const botUsername = ctx.me.username;
-      const text = ctx.message.text;
       
       // 判斷條件 1：是否回覆莎蘿的訊息？
       const isReplyToBot = ctx.message.reply_to_message?.from?.id === ctx.me.id;
       
       // 判斷條件 2：文字中是否包含 @帳號？
-      const isAtMentioned = botUsername && text.includes(`@${botUsername}`);
+      const isAtMentioned = botUsername && userMessage.includes(`@${botUsername}`);
       
       // 判斷條件 3：是否提到名字（繁簡皆可）？
-      const isNameCalled = text.includes("莎蘿") || text.includes("莎萝") || text.includes("Ciallo");
+      const isNameCalled = userMessage.includes("莎蘿") || userMessage.includes("莎萝") || userMessage.includes("Ciallo");
 
       // 如果不是回覆她，也沒有 @她，也沒有直接叫她的名字，就乖乖閉嘴不處理
       if (!isReplyToBot && !isAtMentioned && !isNameCalled) {
-        console.log(`[群組過濾] 忽略非提及訊息: "${text.substring(0, 15)}..."`);
+        console.log(`[群組過濾] 忽略非提及訊息: "${userMessage.substring(0, 15)}..."`);
         return;
       }
     }
@@ -920,13 +973,57 @@ bot.command("addkey", async (ctx) => {
       const userName = ctx.message!.from.first_name || "客人";
       const chatId = ctx.chat.id.toString();
 
+      // ── 檢測回覆內容 (Reply Context) ──
+      const replyMsg = ctx.message.reply_to_message;
+      if (replyMsg) {
+        const repliedName = replyMsg.from?.first_name || "客人";
+        const repliedText = replyMsg.text || replyMsg.caption || "(非文字內容)";
+        // 將被回覆的內容注入，讓莎蘿知道你在跟誰說話，在說什麼
+        userMessage = `[回覆 ${repliedName}：「${repliedText}」] ${userMessage}`;
+      }
+
+      // ── 圖像識別處理 ──
+      if (ctx.message.photo) {
+        const photos = ctx.message.photo;
+        const bestPhoto = photos[photos.length - 1];
+        
+        try {
+          // 1. 取得文件路徑
+          const file = await ctx.api.getFile(bestPhoto.file_id);
+          const fileUrl = `https://api.telegram.org/file/bot${env.BOT_TOKEN}/${file.file_path}`;
+          
+          // 2. 下載圖片並轉為 base64
+          const response = await fetch(fileUrl);
+          const arrayBuffer = await response.arrayBuffer();
+          // 使用 nodejs_compat 提供的 Buffer
+          const base64 = Buffer.from(arrayBuffer).toString('base64');
+          
+          // 3. 調用 Gemini 識別
+          const description = await analyzeImageWithGemini(env, base64, "image/jpeg");
+          
+          // 4. 拼接至 userMessage
+          userMessage = `[客人發送了一張圖片，內容描述如下：${description}] ${userMessage}`;
+          console.log(`📸 [Vision] 圖像識別完成: ${description.substring(0, 50)}...`);
+        } catch (visionError) {
+          console.error("Vision Processing Error:", visionError);
+          userMessage = `[客人發送了一張圖片，但系統識別失敗] ${userMessage}`;
+        }
+      }
+
       const roomName = (ctx.chat.type !== "private" && 'title' in ctx.chat) ? (ctx.chat as any).title || "群組" : "私人對話";
-      const aiReply = await callDeepSeek(env, execCtx, userId, userName, ctx.message.text, chatId, roomName);
+      const aiReply = await callDeepSeek(env, execCtx, userId, userName, userMessage, chatId, roomName);
       if (!aiReply) return; // 如果回覆為空（被去重），則不發送
-      await ctx.reply(aiReply, { reply_parameters: { message_id: ctx.message.message_id } });
+
+      try {
+        await ctx.reply(aiReply, { reply_parameters: { message_id: ctx.message.message_id } });
+      } catch (e) {
+        // 如果回覆原訊息失敗（例如訊息已被刪除），則直接發送
+        console.warn("[回覆失敗] 原訊息可能已被刪除，嘗試直接發送回覆。");
+        await ctx.reply(aiReply);
+      }
     } catch (error) {
       console.error("DeepSeek API 錯誤:", error);
-      await ctx.reply("（莎蘿似乎被什麼事情打斷了，不好意思……請再對她說一次吧。）").catch(() => {});
+      await ctx.reply("（莎蘿似乎在想事情時被打斷了，請再對她說一次吧。）").catch(() => {});
     }
   });
 
