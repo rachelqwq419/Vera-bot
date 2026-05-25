@@ -1,6 +1,6 @@
 import { Bot, InputFile } from "grammy";
 import type { Env } from "./types";
-import { ADMIN_USER_ID, MARU_USER_ID, LALA_USER_ID, KANON_USER_ID, GIFT_SHOP, ALLOWED_SETSTAT_COLUMNS, FORTUNES, DAILY_QUESTS, MOODS, CG_CATEGORIES, type Mood } from "./constants";import { getAffectionTitle, ensureUserExists } from "./utils";
+import { ADMIN_USER_ID, MARU_USER_ID, LALA_USER_ID, KANON_USER_ID, BOSS_ID, GIFT_SHOP, ALLOWED_SETSTAT_COLUMNS, FORTUNES, DAILY_QUESTS, MOODS, CG_CATEGORIES, type Mood } from "./constants";import { getAffectionTitle, ensureUserExists } from "./utils";
 import { computeFavoritePlay } from "./achievements";
 import { logAdminAction } from "./utils";
 import { callDeepSeek } from "./deepseek";
@@ -89,6 +89,25 @@ bot.use(async (ctx, next) => {
       "🍫 回覆莎蘿的訊息並輸入 /coin send 10 即可送巧克力（好感度 +3）。"
     )
   );
+
+  // ── /emergency (緊急呼叫姐姐大人) ──
+  bot.command("emergency", async (ctx) => {
+    const adminMention = `[姐姐大人](tg://user?id=${ADMIN_USER_ID})`;
+    const reporter = ctx.from?.first_name || "一位客人";
+    
+    // 1. 通知姐姐大人
+    await ctx.reply(`🚨 **緊急狀態已啟動！**\n\n莎蘿似乎發生了行為異常，${reporter} 已啟動緊急呼叫！\n${adminMention} 請儘速查看現場狀況。`, { parse_mode: "Markdown" });
+
+    // 2. 強制重置 AI 的當前心情與部分暫時狀態 (寫入 DB)
+    const userId = ctx.from?.id.toString();
+    if (userId) {
+      await env.ciallo_db.prepare(
+        `UPDATE users SET mood = 'HAPPY', temperature = 0.7 WHERE user_id = ?`
+      ).bind(userId).run(); // 重置觸發者的互動狀態為穩定
+    }
+    
+    console.warn(`[EMERGENCY] ${reporter} 觸發了緊急呼叫！`);
+  });
 
   // ── /leaderboard / rank / top ──
   bot.command(["leaderboard", "rank", "top"], async (ctx) => {
@@ -602,17 +621,17 @@ ${specialMoments.length > 0 ? `📜 【特殊時刻】（最近 ${Math.min(3, sp
       `📋 【今日任務】\n\n${quest.description}\n\n完成後可獲得：好感度 +${quest.reward}\n使用 /quest status 查看完成狀態。`
     );
   });
-// ── /reset (GM only) ──
+// ── /reset (GM or Boss only) ──
   bot.command("reset", async (ctx) => {
-    // 1. 權限檢查：只有 ADMIN_USER_ID 可以使用
-    const adminId = ctx.message?.from?.id.toString();
-    if (adminId !== ADMIN_USER_ID) {
-      return ctx.reply("你不是 GM，無法使用這個指令。");
+    // 1. 權限檢查：只有 ADMIN_USER_ID 或 BOSS_ID 可以使用
+    const fromId = ctx.message?.from?.id.toString();
+    if (fromId !== ADMIN_USER_ID && fromId !== BOSS_ID) {
+      return ctx.reply("妳不是管理員或老闆，無法使用這個指令喔～");
     }
 
     // 2. 判斷目標對象（預設是自己）
-    let targetUserId = adminId;
-    let targetName = ctx.message?.from?.first_name || "你";
+    let targetUserId = fromId;
+    let targetName = ctx.message?.from?.first_name || "妳";
 
     // 3. 如果你有 reply 別人的訊息，就把目標換成那個客人
     const targetMsg = ctx.message?.reply_to_message;
@@ -627,8 +646,44 @@ ${specialMoments.length > 0 ? `📜 【特殊時刻】（最近 ${Math.min(3, sp
     ).bind(targetUserId).run();
 
     await ctx.reply(
-      `🧹 [GM] 已經將 ${targetName} 的對話紀錄全部清除囉～數據統計不會受到影響，只有對話歷史被遺忘了呢。`
+      `🧹 [管理/老闆] 已經將 ${targetName} 的對話紀錄全部清除囉～數據統計與記憶不會受到影響。`
     );
+  });
+
+  // ── /adminstop (暫停回應) ──
+  bot.command("adminstop", async (ctx) => {
+    const fromId = ctx.from?.id.toString();
+    if (fromId !== ADMIN_USER_ID && fromId !== BOSS_ID) return;
+
+    const chatId = ctx.chat.id.toString();
+    const stateId = `FLAG_STOP_${chatId}`;
+    await env.ciallo_db.prepare(
+      `INSERT INTO users (user_id, first_name, affection) VALUES (?, 'SYSTEM_FLAG', 1) 
+       ON CONFLICT(user_id) DO UPDATE SET affection = 1`
+    ).bind(stateId).run();
+
+    await ctx.reply("⏸️ **莎蘿已進入觀察模式。**\n\n我會繼續聽大家說話，但暫時不會回覆喔～直到管理員或老闆輸入 /adminresume 為止。");
+  });
+
+  // ── /adminresume (恢復運行並重置狀態) ──
+  bot.command("adminresume", async (ctx) => {
+    const fromId = ctx.from?.id.toString();
+    if (fromId !== ADMIN_USER_ID && fromId !== BOSS_ID) return;
+
+    const chatId = ctx.chat.id.toString();
+    
+    // 1. 解除停止標記
+    await env.ciallo_db.prepare(
+      `UPDATE users SET affection = 0 WHERE user_id = ?`
+    ).bind(`FLAG_STOP_${chatId}`).run();
+
+    // 2. 設置「人格重置」標記，下次對話時強制清醒
+    await env.ciallo_db.prepare(
+      `INSERT INTO users (user_id, first_name, affection) VALUES (?, 'RESET_FLAG', 1) 
+       ON CONFLICT(user_id) DO UPDATE SET affection = 1`
+    ).bind(`FLAG_RESET_${chatId}`).run();
+
+    await ctx.reply("▶️ **莎蘿已經清醒過來了！**\n\n剛剛好像做了個奇怪的夢呢⋯⋯現在我恢復正常囉！大家想聊什麼？♡");
   });
 
   // ── /addcg (GM only, 發送圖片 + caption 指令) ──
@@ -932,6 +987,26 @@ bot.command("addkey", async (ctx) => {
   bot.on(["message:text", "message:photo"], async (ctx) => {
     if (!ctx.message) return;
     if (ctx.message.from?.is_bot) return;
+
+    const chatId = ctx.chat.id.toString();
+
+    // 🛑 [管理員/老闆控制]：檢查是否處於停止狀態
+    try {
+      const stopFlag: any = await env.ciallo_db.prepare(
+        `SELECT affection FROM users WHERE user_id = ?`
+      ).bind(`FLAG_STOP_${chatId}`).first();
+      
+      if (stopFlag?.affection === 1) {
+        // 如果是管理員或老闆輸入 /adminresume，允許通過
+        const userText = ctx.message.text || ctx.message.caption || "";
+        if (userText.startsWith("/adminresume")) return;
+        
+        console.log(`[停止模式] 已忽略來自群組 ${chatId} 的訊息。`);
+        return;
+      }
+    } catch (e) {
+      console.error("檢查停止狀態出錯:", e);
+    }
 
     let userMessage = ctx.message.text || ctx.message.caption || "";
 

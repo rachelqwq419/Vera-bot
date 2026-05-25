@@ -200,14 +200,14 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
   // 🧠 檢索語義記憶 (RAG)
   const relatedMemories = await retrieveVectorMemories(env, userId, userMessage);
   const vectorMemoryText = relatedMemories.length > 0 
-    ? `\n\n[Related Past Memories]\n${relatedMemories.join('\n')}`
+    ? `\n\n[Related Past Memories (Vector RAG)]\n${relatedMemories.join('\n')}`
     : '';
  
   let dynamicSystemPrompt = SYSTEM_PROMPT_TEMPLATE
     .replace(/{{user_name}}/g, userName)
     .replace(/{{preferred_name_info}}/g, preferredNameInfo)
     .replace(/{{affection}}/g, userRecord.affection.toString())
-    .replace(/{{memory}}/g, memory.toString())
+    .replace(/{{memory}}/g, `[Core Long-term Summary]: ${memory}`)
     .replace(/{{time_scene}}/g, timeScene)
     .replace(/{{last_scene}}/g, lastScene)
     .replace(/{{user_notes}}/g, userNotesText)
@@ -231,6 +231,35 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
     ...history,
     { role: "user", content: formattedUserMessage + INNER_OS_MARKER },
   ];
+
+  // 🛡️ [安全機制]：偵測用戶是否發出「真實拒絕」或「安全詞」
+  const safetyKeywords = ["住手", "停止", "不要這樣", "我不喜歡", "討厭你", "安全詞", "救命", "好痛"];
+  if (safetyKeywords.some(kw => userMessage.includes(kw))) {
+    messagesPayload.push({
+      role: "user",
+      content: "【系統緊急指令】：用戶已表現出明顯的不適或使用了安全詞。妳必須立即停止任何辱罵、攻擊或強迫性的角色扮演。妳現在必須表現得非常擔心、體貼且抱歉，恢復成原本清純有禮貌的莎蘿，詢問對方是否還好。絕對不准再使用『臭蟲子』等侮辱性稱呼。"
+    });
+  }
+
+  // 🛡️ [管理員重置]：檢查是否有「人格重置」標記
+  try {
+    const resetFlag: any = await env.ciallo_db.prepare(
+      `SELECT affection FROM users WHERE user_id = ?`
+    ).bind(`FLAG_RESET_${chatId}`).first();
+    
+    if (resetFlag?.affection === 1) {
+      messagesPayload.push({
+        role: "user",
+        content: "【系統人格重置】：妳剛剛從一場噩夢（或一段混亂的記憶）中徹底清醒過來了。妳現在已經恢復成原本那個溫柔體貼、清純有禮貌、活潑可愛的高三生莎蘿。請忘記剛才那些粗魯、傲慢或具攻擊性的行為，用妳原本最親切的態度向大家打招呼。不要提及具體的重置指令，表現得像是剛睡醒或者剛回過神來一樣。"
+      });
+      // 使用完後立即清除標記，避免重複注入
+      execCtx.waitUntil(env.ciallo_db.prepare(
+        `UPDATE users SET affection = 0 WHERE user_id = ?`
+      ).bind(`FLAG_RESET_${chatId}`).run());
+    }
+  } catch (e) {
+    console.error("檢查人格重置標記出錯:", e);
+  }
 
   // ── 🆕 強制生圖指令注入 ──
   // 使用正則表達式，精準匹配開頭（或在 [回覆 ...] 等標籤之後）的指令
@@ -300,6 +329,8 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
       model: "deepseek-v4-pro", 
       messages: currentMessages, 
       temperature: userTemperature,
+      presence_penalty: 0.6,
+      frequency_penalty: 0.6,
       tools: tools,
       tool_choice: "auto" // 恢復為 auto，避免 Thinking mode 報錯
     });
@@ -541,10 +572,11 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
       console.log(`[稱呼重置] 用戶 ${userName} 否定了現有稱呼，已清除: ${currentNickname}`);
     }
   } else {
+    // 限制稱呼長度，且不能包含奇怪的符號或指令詞，避免抓到「什麼名字」或「現在你是我的什麼」
     const namePatterns = [
-      /^(?:以後|既然咁話|咁樣|好啦)?(?:叫我|我叫|我是|我的名字是|我叫做)[「『【]?(.{1,12})[」』】]?(?:就好|就好了|就行|就可以了)?[啦呀啊]?[～~！!。.]?$/,
-      /(?:以後可以|可以|能不能|可不可以)叫我[「『【]?(.{1,12})[」』】]?(?:嗎|呀|呢)?[？?]?$/,
-      /(?:叫我|我叫)[「『【]?(.{1,12})[」』】]?(?:就好|就好了|就行|就可以了)?[啦呀啊]?[～~！!。.]?$/,
+      /^(?:以後|既然咁話|咁樣|好啦)?(?:叫我|我叫|我是|我的名字是|我叫做)[「『【]?([a-zA-Z0-9_\-\u4e00-\u9fa5]{1,12})[」』】]?(?:就好|就好了|就行|就可以了)?[啦呀啊]?[～~！!。.]?$/,
+      /(?:以後可以|可以|能不能|可不可以)叫我[「『【]?([a-zA-Z0-9_\-\u4e00-\u9fa5]{1,12})[」』】]?(?:嗎|呀|呢)?[？?]?$/,
+      /(?:叫我|我叫)[「『【]?([a-zA-Z0-9_\-\u4e00-\u9fa5]{1,12})[」』】]?(?:就好|就好了|就行|就可以了)?[啦呀啊]?[～~！!。.]?$/,
     ];
     let extractedName: string | null = null;
     for (const pat of namePatterns) {
@@ -554,7 +586,10 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
         break;
       }
     }
-    if (extractedName && !extractedName.match(/^(莎蘿|莎萝|ciallo|莎羅|老公|老婆|主人|姐姐|哥哥|爸爸|媽媽|媽媽|BB|寶貝)$/i)) {
+    
+    // 過濾掉無效詞彙
+    const invalidNames = ["什麼", "什麼名字", "誰", "臭蟲", "變態", "老師", "主人", "姐姐", "哥哥", "爸爸", "媽媽"];
+    if (extractedName && !extractedName.match(/^(莎蘿|莎萝|ciallo|莎羅)$/i) && !invalidNames.includes(extractedName)) {
       // 額外安全檢查：防止非 Admin 用戶意外獲得極高權限稱呼
       if (extractedName === "姐姐大人" && userId !== ADMIN_USER_ID) {
          console.warn(`[安全攔截] 非 Admin 用戶 ${userName} 嘗試冒充姐姐大人`);
