@@ -1,5 +1,6 @@
 // ── 常數 ──
 export const ADMIN_USER_ID = "1039189463";
+export const ADMIN_ALIASES = ["音", "小音", "音姐姐", "Yin", "姐姐大人", "創作者", "小音大人","牢姐","音寶","姐姐","音大人"];
 export const MARU_USER_ID = "6172812239";    // 舞瑠的 TG ID
 export const BOSS_ID = "7804622477";         // 👑 瑪麗老闆的 TG ID
 export const LALA_USER_ID = "6299565972";    // 🌸 菈菈的 TG ID

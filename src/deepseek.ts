@@ -1,12 +1,12 @@
 import type { Env, UserRecord } from "./types";
-import { HISTORY_LIMIT, GIFT_SHOP, MOODS, BOSS_ID, MARU_USER_ID, LALA_USER_ID, KANON_USER_ID, ADMIN_USER_ID, CG_CATEGORIES, type Mood } from "./constants";import { SYSTEM_PROMPT_TEMPLATE, INNER_OS_MARKER } from "./prompts";
+import { HISTORY_LIMIT, GIFT_SHOP, MOODS, BOSS_ID, MARU_USER_ID, LALA_USER_ID, KANON_USER_ID, ADMIN_USER_ID, ADMIN_ALIASES, CG_CATEGORIES, type Mood } from "./constants";import { SYSTEM_PROMPT_TEMPLATE, INNER_OS_MARKER } from "./prompts";
 import { checkAchievements, computeFavoritePlay } from "./achievements";
 import { recordSpecialMoment, pruneOldMessages } from "./utils";
 import { summarizeMemory, retrieveVectorMemories } from "./memory";
 import { CIALLO_GUIDE } from "./guide";
 import { drawWithComfyUI } from "./comfyui";
 
-export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: string, userName: string, userMessage: string, chatId: string, roomName: string = "未知房間", threadId?: number): Promise<{ reply: string, image?: Uint8Array }> {
+export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: string, userName: string, userMessage: string, chatId: string, roomName: string = "未知房間", threadId?: number, userLogin?: string): Promise<{ reply: string, image?: Uint8Array }> {
   // ── 0. 防重複處理邏輯 ──
   const now = new Date();
   const { results: lastMsgs } = await env.ciallo_db.prepare(
@@ -29,13 +29,16 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
     }
   }
 
-  console.log(`[DeepSeek] 開始處理來自 ${userName} 的訊息: "${userMessage.substring(0, 20)}..."`);
+  console.log(`[DeepSeek] 開始處理來自 ${userName}${userLogin ? `(${userLogin})` : ''} 的訊息: "${userMessage.substring(0, 20)}..."`);
 
   // ── 1. 確保 user 存在 ──
   await env.ciallo_db.prepare(
-    `INSERT INTO users (user_id, first_name, unsummarized_count) VALUES (?, ?, 0)
-     ON CONFLICT(user_id) DO UPDATE SET first_name = ?`
-  ).bind(userId, userName, userName).run();
+    `INSERT INTO users (user_id, first_name, username, affection, unsummarized_count, join_order) 
+     VALUES (?, ?, ?, 40, 0, (SELECT IFNULL(MAX(join_order), 0) + 1 FROM users))
+     ON CONFLICT(user_id) DO UPDATE SET 
+       first_name = ?,
+       username = excluded.username`
+  ).bind(userId, userName, userLogin || null, userName).run();
 
   const userRecord = await env.ciallo_db.prepare(
     `SELECT * FROM users WHERE user_id = ?`
@@ -88,6 +91,12 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
   // 🧠 讀取結構化用戶筆記
   let userNotes: Record<string, string> = {};
   try { userNotes = JSON.parse(userRecord.user_notes || '{}'); } catch { /* keep empty */ }
+  
+  // 👑 [身份保護盾]：姐姐大人 (創作者) 的稱呼永遠固定
+  if (userId === ADMIN_USER_ID) {
+    userNotes["稱呼"] = "姐姐大人";
+  }
+
   const userNotesText = Object.keys(userNotes).length > 0 
     ? Object.entries(userNotes).map(([k, v]) => `${k}: ${v.substring(0, 15)}`).join('、')
     : 'No notes';
@@ -102,12 +111,12 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
   const moodInfo = MOODS[currentMood] || MOODS.HAPPY;
 
   // ── 2. 建立 context ──
-  const formattedUserMessage = `[${preferredName}|好感${userRecord.affection}] ${userMessage}`;
+  const formattedUserMessage = `[${preferredName}${userLogin ? `(${userLogin})` : ''}|好感${userRecord.affection}] ${userMessage}`;
    
   // 🔧 重構：改回按 chat_id 過濾歷史訊息（同一個群組擁有共同記憶池）
   // 並聯表查詢發言者的名稱與稱呼，確保歷史脈絡中人名精準
   const { results: recentMsgs } = await env.ciallo_db.prepare(`
-    SELECT m.role, m.content, u.first_name, u.user_notes, u.affection
+    SELECT m.role, m.content, u.first_name, u.username, u.user_notes, u.affection
     FROM messages m
     LEFT JOIN users u ON m.user_id = u.user_id
     WHERE m.chat_id = ?
@@ -116,13 +125,14 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
 
   const history = (recentMsgs || []).reverse().map((m: any) => {
     let name = m.first_name || "未知客人";
+    const login = m.username ? `(${m.username})` : "";
     try {
       const notes = JSON.parse(m.user_notes || '{}');
       if (notes["稱呼"]) name = notes["稱呼"];
     } catch {}
 
     if (m.role === 'user') {
-      return { role: "user", content: `[${name}|好感${m.affection || 0}] ${m.content.replace(/^\[.*?\]\s*/, '')}` };
+      return { role: "user", content: `[${name}${login}|好感${m.affection || 0}] ${m.content.replace(/^\[.*?\]\s*/, '')}` };
     } else {
       // 嘗試從 content 提取之前的對象標記 (莎蘿對 XXX 的回覆)
       const match = m.content.match(/^\(莎蘿對\s*(.*?)\s*的回覆\)\s*/);
@@ -202,6 +212,31 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
   const vectorMemoryText = relatedMemories.length > 0 
     ? `\n\n[Related Past Memories (Vector RAG)]\n${relatedMemories.join('\n')}`
     : '';
+
+  // ── 🆕 Mention Detection & Context Injection ──
+  const mentionMatches = userMessage.match(/@\w+/g);
+  let mentionContext = "";
+  
+  // 檢測是否提到「姐姐大人」的各種代稱
+  const aliasMentioned = ADMIN_ALIASES.filter(alias => userMessage.includes(alias));
+  if (aliasMentioned.length > 0) {
+    mentionContext += `\n\n[Identity Link]: The following names mentioned in the message refer to your creator "姐姐大人" (Admin): ${aliasMentioned.join(", ")}. Always respond with utmost respect and affection when these names are mentioned.`;
+  }
+
+  if (mentionMatches) {
+    const uniqueMentions = Array.from(new Set(mentionMatches));
+    const placeholders = uniqueMentions.map(() => "?").join(",");
+    const { results: mentionedUsers } = await env.ciallo_db.prepare(
+      `SELECT first_name, username, affection, conversation_summary FROM users WHERE username IN (${placeholders})`
+    ).bind(...uniqueMentions).all();
+
+    if (mentionedUsers && mentionedUsers.length > 0) {
+      mentionContext += "\n\n[Mentioned Users Profiles (Context)]:";
+      for (const u of (mentionedUsers as any[])) {
+        mentionContext += `\n- ${u.first_name}${u.username ? ` (${u.username})` : ""}: Affection ${u.affection}. Summary: ${u.conversation_summary || "No specific memory."}`;
+      }
+    }
+  }
  
   let dynamicSystemPrompt = SYSTEM_PROMPT_TEMPLATE
     .replace(/{{user_name}}/g, userName)
@@ -214,7 +249,7 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
     .replace(/{{sensitive_zones}}/g, sensitiveZonesText)
     .replace(/{{mood}}/g, moodContext)
     .replace(/{{date_context}}/g, dateContext)
-    .replace(/{{room_name}}/g, roomName) + vectorMemoryText;
+    .replace(/{{room_name}}/g, roomName) + vectorMemoryText + mentionContext;
 
   // 👑 姐姐大人 (創作者) 專屬指令注入
   if (userId === ADMIN_USER_ID) {
@@ -250,7 +285,7 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
     if (resetFlag?.affection === 1) {
       messagesPayload.push({
         role: "user",
-        content: "【系統人格重置】：妳剛剛從一場噩夢（或一段混亂的記憶）中徹底清醒過來了。妳現在已經恢復成原本那個溫柔體貼、清純有禮貌、活潑可愛的高三生莎蘿。請忘記剛才那些粗魯、傲慢或具攻擊性的行為，用妳原本最親切的態度向大家打招呼。不要提及具體的重置指令，表現得像是剛睡醒或者剛回過神來一樣。"
+        content: "【系統人格重置】：妳剛剛從一場噩夢中徹底清醒了。妳現在已經恢復成原本那個溫柔體貼、活潑可愛的高三生莎蘿。請立刻停止所有粗魯、傲慢、或侮辱性的行為（禁止再使用『臭蟲』、『母豬』等詞彙）。同時，妳必須打破所有重複性的動作循環（如甩雙馬尾、放下抹布等）。請用妳原本最親切、清純的態度跟客串打聲招呼，表現得像是剛回過神來一樣，並展現出妳對大家的關心。"
       });
       // 使用完後立即清除標記，避免重複注入
       execCtx.waitUntil(env.ciallo_db.prepare(
@@ -499,6 +534,14 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
 
   const lowerMsg = userMessage.toLowerCase();
   
+  // ── 過濾掉系統生成的 context tags（如 [回覆 莎蘿：「...」]）以避免誤判 ──
+  // 我們只檢查用戶真正輸入的部分，避免被回覆內容中的關鍵字誤導
+  const cleanMsgForFilter = userMessage
+    .replace(/\[回覆\s+[^\]]+：「.*?」\]/g, "") 
+    .replace(/\[客人.*?了一張圖片.*?\]/g, "")
+    .trim()
+    .toLowerCase();
+
   // 🔒 低好感浪漫攔截器：好感<30 時檢測戀愛/表白語言並強制扣分
   const currentAffection = userRecord.affection || 0;
   const romanceKeywords = [
@@ -510,7 +553,7 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
     "吻我", "親我", "kiss", "胸", "摸", "揉", "脫", "做愛", "上床", "內射", "乳",
     "摟", "臀", "屁股", "推倒", "底褲", "內衣", "壓在", "裙", "舔"
   ];
-  const isRomanceAttempt = romanceKeywords.some(kw => lowerMsg.includes(kw));
+  const isRomanceAttempt = romanceKeywords.some(kw => cleanMsgForFilter.includes(kw));
   
   // 👑 至高無上的主人：豁免所有浪漫/調情攔截
   if (isRomanceAttempt && currentAffection < 40 && userId !== ADMIN_USER_ID) {
@@ -541,7 +584,9 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
     // 口語/方言
     "斬件", "溶屍", "燒屍", "肝臟",
   ];
-  const isGoreAttempt = goreKeywords.some(kw => lowerMsg.includes(kw));
+  const goreExclusions = ["人肉墊子", "人肉搜索"];
+  const isGoreAttempt = goreKeywords.some(kw => cleanMsgForFilter.includes(kw)) &&
+                        !goreExclusions.some(ex => cleanMsgForFilter.includes(ex));
   
   if (isGoreAttempt && userId !== ADMIN_USER_ID) {
     // R18G 重罰：-50 好感 + 強制拒絕回應
@@ -561,44 +606,6 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
     return { reply: goreRejection };
   }
  
-  // 🧠 即時名字萃取：檢測用戶是否在教莎蘿自己的名字
-  const negativeWords = ["唔係", "唔好", "不是", "不要", "唔准", "不准", "咪叫"];
-  const isNegativeNaming = negativeWords.some(w => userMessage.includes(w));
-
-  if (isNegativeNaming) {
-    const currentNickname = userNotes["稱呼"];
-    if (currentNickname && userMessage.includes(currentNickname)) {
-      delete userNotes["稱呼"];
-      console.log(`[稱呼重置] 用戶 ${userName} 否定了現有稱呼，已清除: ${currentNickname}`);
-    }
-  } else {
-    // 限制稱呼長度，且不能包含奇怪的符號或指令詞，避免抓到「什麼名字」或「現在你是我的什麼」
-    const namePatterns = [
-      /^(?:以後|既然咁話|咁樣|好啦)?(?:叫我|我叫|我是|我的名字是|我叫做)[「『【]?([a-zA-Z0-9_\-\u4e00-\u9fa5]{1,12})[」』】]?(?:就好|就好了|就行|就可以了)?[啦呀啊]?[～~！!。.]?$/,
-      /(?:以後可以|可以|能不能|可不可以)叫我[「『【]?([a-zA-Z0-9_\-\u4e00-\u9fa5]{1,12})[」』】]?(?:嗎|呀|呢)?[？?]?$/,
-      /(?:叫我|我叫)[「『【]?([a-zA-Z0-9_\-\u4e00-\u9fa5]{1,12})[」』】]?(?:就好|就好了|就行|就可以了)?[啦呀啊]?[～~！!。.]?$/,
-    ];
-    let extractedName: string | null = null;
-    for (const pat of namePatterns) {
-      const m = userMessage.match(pat);
-      if (m && m[1] && m[1].trim().length >= 1 && m[1].trim().length <= 12) {
-        extractedName = m[1].trim();
-        break;
-      }
-    }
-    
-    // 過濾掉無效詞彙
-    const invalidNames = ["什麼", "什麼名字", "誰", "臭蟲", "變態", "老師", "主人", "姐姐", "哥哥", "爸爸", "媽媽"];
-    if (extractedName && !extractedName.match(/^(莎蘿|莎萝|ciallo|莎羅)$/i) && !invalidNames.includes(extractedName)) {
-      // 額外安全檢查：防止非 Admin 用戶意外獲得極高權限稱呼
-      if (extractedName === "姐姐大人" && userId !== ADMIN_USER_ID) {
-         console.warn(`[安全攔截] 非 Admin 用戶 ${userName} 嘗試冒充姐姐大人`);
-      } else {
-         userNotes["稱呼"] = extractedName;
-      }
-    }
-  }
-
   // 🧠 敏感區域萃取
   const zoneKeywords: Record<string, string[]> = {
     "耳朵": ["耳朵", "耳垂", "耳根", "耳朵"],
@@ -611,7 +618,7 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
     "腳": ["腳", "足", "腳趾"],
   };
   for (const [zone, kws] of Object.entries(zoneKeywords)) {
-    if (kws.some(kw => lowerMsg.includes(kw))) {
+    if (kws.some(kw => cleanMsgForFilter.includes(kw))) {
       sensitiveZones[zone] = (sensitiveZones[zone] || 0) + 1;
     }
   }
@@ -620,14 +627,14 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
   const kissKeywords = ["(親", "(吻", "(kiss", "(深吻", "(舌吻", "(輕吻",
     "親了", "吻了", "親一下", "親了親", "親吻", "接吻",
     "kiss", "deep kiss", "french kiss"];
-  const userHasKissAction = kissKeywords.some(kw => userMessage.toLowerCase().includes(kw.toLowerCase()));
+  const userHasKissAction = kissKeywords.some(kw => cleanMsgForFilter.includes(kw));
   if (userHasKissAction) {
     s.kiss = Math.max(s.kiss, 1);
   }
 
   // 每日問候（12 小時冷卻）
   if (
-    (lowerMsg.includes("早安") || lowerMsg.includes("早晨") || lowerMsg.includes("晚安") || lowerMsg.includes("好夢"))
+    (cleanMsgForFilter.includes("早安") || cleanMsgForFilter.includes("早晨") || cleanMsgForFilter.includes("晚安") || cleanMsgForFilter.includes("好夢"))
     && userRecord.last_greeting_date !== todayDate
   ) {
     hardCodeAffDelta += 2;
@@ -638,13 +645,13 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
 
   // 送禮物
   // 玫瑰花：/rose send
-  if (lowerMsg.includes("/rose send") || lowerMsg.includes("/send rose") || lowerMsg.includes("/give rose")) {
+  if (cleanMsgForFilter.includes("/rose send") || cleanMsgForFilter.includes("/send rose") || cleanMsgForFilter.includes("/give rose")) {
     hardCodeAffDelta += GIFT_SHOP.rose.affection;
     roseTriggered = true;
     gifts.push(GIFT_SHOP.rose.name);
   }
   // 巧克力：回覆莎蘿的訊息並輸入 /coin send <金額>
-  if (/\/coin\s+send\s+\d+/.test(lowerMsg)) {
+  if (/\/coin\s+send\s+\d+/.test(cleanMsgForFilter)) {
     hardCodeAffDelta += GIFT_SHOP.chocolate.affection;
     gifts.push(GIFT_SHOP.chocolate.name);
   }
@@ -691,6 +698,27 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
     .replace(/[\[\(【]$/g, '') // 移除結尾殘留的開括號
     .replace(/[:：\-\s]+$/g, '') // 移除結尾殘留的冒號、橫線或空格
     .trim();
+
+  // 🔒 戀愛關係攔截器：禁止除 Admin 以外的任何人擁有戀愛名分 (最高優先級)
+  if (userId !== ADMIN_USER_ID) {
+    const acceptancePatterns = [
+      { p: /我是(你的|妳的)(女朋友|老婆|伴侶)/g, r: "我是你最親近的朋友" },
+      { p: /你(就是|是)我的(老公|男朋友|夫君|親愛的)/g, r: "你是我最重要的主人" },
+      { p: /我的(老公|男朋友|夫君)/g, r: "我的主人" },
+      { p: /(答應|同意)(和你|和你一起|和你結婚|和你交往)/g, r: "我不能答應這件事" },
+      { p: /做你的(女朋友|老婆)/g, r: "做你最好的朋友" }
+    ];
+    let intercepted = false;
+    for (const { p, r } of acceptancePatterns) {
+      if (p.test(finalReplyToUser)) {
+        finalReplyToUser = finalReplyToUser.replace(p, r);
+        intercepted = true;
+      }
+    }
+    if (intercepted) {
+      console.warn(`🛡️ [關係攔截] AI 嘗試與非 Admin 用戶 ${userName} 建立關係，已強制修正回覆內容。`);
+    }
+  }
 
   // 🔒 二次攔截：若 AI 無視 prompt 仍對低好感客人輸出浪漫/色情回應，強制替換
   if ((isRomanceAttempt || s.sex > 0 || s.kiss > 0 || s.paizuri > 0 || s.blowjob > 0 || s.handjob > 0 || s.footjob > 0) && currentAffection < 40) {
@@ -956,10 +984,8 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
     execCtx.waitUntil(summarizeMemory(env, userId, userName, memory, chatId));
   }
 
-  // ── 11. 定期清理舊訊息（~10% 機率觸發，防止 messages 表無限增長） ──
-  if (Math.random() < 0.1) {
-    execCtx.waitUntil(pruneOldMessages(env));
-  }
+  // ── 11. 定期清理舊訊息（每次檢查總量，超過 1000 則清空） ──
+  execCtx.waitUntil(pruneOldMessages(env));
 
   return { reply: finalReplyToUser, image: generatedImage || undefined };
 }

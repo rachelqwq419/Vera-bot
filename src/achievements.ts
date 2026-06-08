@@ -39,7 +39,7 @@ export function checkAchievements(user: UserRecord): string[] {
   if (user.submissive_count >= 1 && !has("腹黑臣服：被你羞辱時主動求你繼續")) add("腹黑臣服：被你羞辱時主動求你繼續");
   if (user.cowgirl_count >= 10 && !has("騎師：騎乘位累計10次")) add("騎師：騎乘位累計10次");
   if (user.reverse_cowgirl_count >= 5 && !has("背影殺手：反向騎乘5次")) add("背影殺手：反向騎乘5次");
-  if (user.doggy_count >= 20 && !has("汪系戀人：後入式20次")) add("汪系戀人：後入式20次");
+  if (user.doggy_count >= 20 && !has("汪系僕從：後入式20次")) add("汪系僕從：後入式20次");
   if (user.missionary_count >= 20 && !has("經典之愛：正常位20次")) add("經典之愛：正常位20次");
   if (user.standing_count >= 5 && !has("無重力之愛：站立式5次")) add("無重力之愛：站立式5次");
   if (user.sixty_nine_count >= 10 && !has("互相取悅：69式10次")) add("互相取悅：69式10次");

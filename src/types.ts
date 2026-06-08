@@ -72,6 +72,7 @@ export interface UserRecord {
   last_message_time: string | null;
   temperature: number;
   unlocked_cgs: string;
+  join_order?: number | null;
 
   // Phase 2: 結構化用戶筆記 + 場景追蹤
   user_notes: string;    // JSON: {"name":"小明","nickname":"..."}

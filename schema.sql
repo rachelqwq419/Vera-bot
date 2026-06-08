@@ -60,6 +60,7 @@ CREATE TABLE IF NOT EXISTS users (
     last_sex_date DATETIME,
     last_message_time TEXT,             -- rate limit tracking (ISO datetime)
     temperature REAL DEFAULT 0.85,      -- per-user AI temperature
+    join_order INTEGER,                 -- 記錄第幾位客人
 
     -- Phase 2: 結構化用戶筆記 + 場景追蹤
     user_notes TEXT DEFAULT '{}',       -- JSON: {"name":"小明","nickname":"..."}

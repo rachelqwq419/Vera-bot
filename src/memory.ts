@@ -17,7 +17,7 @@ export async function summarizeMemory(
   // 從群組共用記憶池擷取最近對話（涵蓋所有參與者，提供完整脈絡）
   // 並聯表查詢發言者的名稱與稱呼，確保總結時人名精準
   const { results: recentMsgs } = await env.ciallo_db.prepare(`
-    SELECT m.role, m.content, u.first_name, u.user_notes
+    SELECT m.role, m.content, u.first_name, u.username, u.user_notes
     FROM messages m
     LEFT JOIN users u ON m.user_id = u.user_id
     WHERE m.chat_id = ?
@@ -32,13 +32,14 @@ export async function summarizeMemory(
   const historyText = (recentMsgs as any[]).reverse()
     .map(m => {
       let name = m.first_name || "未知客人";
+      const login = m.username ? `(${m.username})` : "";
       try {
         const notes = JSON.parse(m.user_notes || '{}');
         if (notes["稱呼"]) name = notes["稱呼"];
       } catch {}
 
       if (m.role === 'user') {
-        return `${name}: ${m.content.replace(/^\[.*?\]\s*/, '')}`;
+        return `${name}${login}: ${m.content.replace(/^\[.*?\]\s*/, '')}`;
       } else {
         const match = m.content.match(/^\(莎蘿對\s*(.*?)\s*的回覆\)\s*/);
         const targetName = match ? match[1] : "客人";
@@ -49,32 +50,30 @@ export async function summarizeMemory(
     .join('\n');
 
   const summaryPrompt = `
-你是一個無情的後台數據總結程式，絕對不能扮演莎蘿。
-請根據以下資料，更新客人「${userName}」的【長期記憶總結】。
+You are a back-end data archival system. Your goal is to process the recent conversation and update the user's memory records.
 
-【目前長期記憶總結（必須保留其中仍然重要的資訊）】：
-${currentSummary || '（尚無記憶）'}
+[Current Cumulative Summary (Global State)]:
+${currentSummary || '(No previous memory)'}
 
-【近期群組對話紀錄】（包含多位客人與莎蘿的互動，僅提取與 ${userName} 相關的部分）：
+[Recent Conversation Segment (Last 10-15 messages)]:
 ${historyText}
 
-【輸出格式】（嚴格遵守，用 JSON 輸出，不要其他任何文字）：
-{
-  "summary": "總結文字（300字以內，第三人稱客觀描述。必須合併「目前長期記憶」與「近期對話」中關於此客人的新進展。舊記憶中仍然有效的資訊（喜好、關係里程碑、特殊事件）必須保留，只新增或更新近期變化。）",
-  "likes": ["喜歡的事物1", "不重複列出", "合併新舊"],
-  "dislikes": ["討厭的事物1", "不重複列出", "合併新舊"]
-}
+[Task]:
+1. **Global Summary**: Update the cumulative long-term summary. Merge new critical facts (relationships, milestones, core changes) into the old summary. Keep it concise.
+2. **Segment Snapshot**: Create a brief, unique description of *only* what happened in the [Recent Conversation Segment]. Do not include old facts. Focus on the specific events, mood, or topics discussed in this chunk.
 
-【輸出要求】：
-- 必須以第三人稱客觀描述
-- 嚴禁輸出任何對話原話或第一人稱視角
-- 合併新舊記憶 — 新的喜好/厭惡加入，舊的保留不要丟
-- likes/dislikes 必須去重，不要重複列出相同項目
-- 若無則為空陣列 []
+[Output Requirements]:
+- Language: **ENGLISH** only.
+- Format: JSON.
+{
+  "global_summary": "Updated cumulative memory (max 300 words).",
+  "segment_snapshot": "A unique snapshot of this specific 10-message interaction (e.g., 'The user discussed X and felt Y during the evening at the tavern.')",
+  "likes": ["New or confirmed likes"],
+  "dislikes": ["New or confirmed dislikes"]
+}
 `;
 
 try {
-    // 改用有 Fallback 的函數
     const data = await fetchWithFallback(env, {
       model: "deepseek-v4-pro", 
       messages: [{ role: "system", content: summaryPrompt }],
@@ -82,35 +81,20 @@ try {
       response_format: { type: "json_object" },
     });
 
-    if (data.error) {
-      console.warn("記憶總結 API 錯誤:", data.error.message);
-      return;
-    }
-    if (!data?.choices?.[0]?.message?.content) {
-      console.warn("記憶總結 API 回傳空內容，跳過");
-      return;
-    }
+    if (!data?.choices?.[0]?.message?.content) return;
 
     const raw = data.choices[0].message.content.trim();
-
-    let newSummary = currentSummary; // 預設保留舊記憶，避免 JSON 解析失敗時全部丟失
-    let likes: string[] = [];
-    let dislikes: string[] = [];
-
+    let parsed;
     try {
-      const parsed = JSON.parse(raw);
-      newSummary = parsed.summary || currentSummary;
-      likes = parsed.likes || [];
-      dislikes = parsed.dislikes || [];
-    } catch {
-      // JSON 解析失敗時保留舊記憶，不覆蓋
-      console.warn(`記憶總結 JSON 解析失敗，保留舊記憶。原始內容: ${raw.substring(0, 200)}`);
-      await env.ciallo_db.prepare(
-        `UPDATE users SET unsummarized_count = 0 WHERE user_id = ?`
-      ).bind(userId).run();
-      return;
-    }
+      parsed = JSON.parse(raw);
+    } catch { return; }
 
+    const newGlobalSummary = parsed.global_summary || currentSummary;
+    const segmentSnapshot = parsed.segment_snapshot;
+    const likes = parsed.likes || [];
+    const dislikes = parsed.dislikes || [];
+
+    // 1. 更新 D1 核心狀態
     await env.ciallo_db.prepare(
       `UPDATE users SET
          conversation_summary = ?,
@@ -118,16 +102,18 @@ try {
          user_likes = ?,
          user_dislikes = ?
        WHERE user_id = ?`
-    ).bind(newSummary, JSON.stringify(likes), JSON.stringify(dislikes), userId).run();
+    ).bind(newGlobalSummary, JSON.stringify(likes), JSON.stringify(dislikes), userId).run();
 
-    // ── 🆕 新增：將總結存入向量資料庫 ──
-    try {
-      await storeVectorMemory(env, userId, `[Memory Summary] ${newSummary}`);
-    } catch (ve) {
-      console.error("向量記憶存儲失敗:", ve);
+    // 2. 存入向量資料庫 (僅存入本次片段的獨特 Snapshot，避免重複)
+    if (segmentSnapshot) {
+      try {
+        await storeVectorMemory(env, userId, `[Past Event Snapshot] ${segmentSnapshot}`);
+      } catch (ve) {
+        console.error("向量記憶存儲失敗:", ve);
+      }
     }
 
-    console.log(`已成功總結 ${userName} 的記憶: ${newSummary}`);
+    console.log(`✅ 已完成 ${userName} 的記憶歸檔。Snapshot: ${segmentSnapshot?.substring(0, 50)}...`);
   } catch (e) {
     console.error("記憶總結失敗:", e);
   }

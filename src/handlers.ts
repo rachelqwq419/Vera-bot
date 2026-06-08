@@ -29,11 +29,17 @@ export function registerHandlers(bot: Bot, env: Env, execCtx: ExecutionContext):
 bot.use(async (ctx, next) => {
   const text = ctx.message?.text;
   
-  // 1. 確認是指令，且排除 /ciallo
-  if (text && text.startsWith("/") && !text.startsWith("/ciallo")) {
+  // 1. 確認是指令，且排除不需要自動刪除的指令
+  if (text && text.startsWith("/")) {
     
-    // 🔥 修改這裡：將 `/cg` 和 `/deletecg` 加入豁免清單
-    if (text.startsWith("/cg") || text.startsWith("/deletecg")) {
+    // 豁免清單：不執行自動刪除，也不顯示刪除提示
+    if (
+      text.startsWith("/ciallo") ||
+      text.startsWith("/cg") || 
+      text.startsWith("/deletecg") || 
+      text.startsWith("/group_impression") || 
+      text.startsWith("/gi")
+    ) {
       return next();
     }
 
@@ -82,6 +88,7 @@ bot.use(async (ctx, next) => {
       "/quest — 查看今日任務\n" +
       "/gifts — 查看送給莎蘿的禮物紀錄\n" +
       "/fortune — 今日戀愛占卜\n" +
+      "/group_impression 或 /gi — 莎蘿對本群組的觀察報告\n" +
       "/cg — 查看CG圖鑑\n\n" +
 
       "💡 每日對莎蘿說「早安」「晚安」可以增加好感度。\n" +
@@ -193,47 +200,50 @@ bot.use(async (ctx, next) => {
       let targetName: string;
       
       // 這裡恢復原本乾淨的判斷
+      const targetUserLogin = targetMsg?.from?.username ? `@${targetMsg.from.username}` : undefined;
+      const selfLogin = ctx.from?.username ? `@${ctx.from.username}` : undefined;
+      
       if (targetMsg?.from?.id) {
         targetUserId = targetMsg.from.id.toString();
         targetName = targetMsg.from.first_name || "客人";
+        await ensureUserExists(env, targetUserId, targetName, targetUserLogin);
       } else {
-        const self = ctx.message?.from;
+        const self = ctx.from;
         if (!self?.id) return ctx.reply("無法獲取你的 ID。");
         targetUserId = self.id.toString();
         targetName = self.first_name || "你";
+        await ensureUserExists(env, targetUserId, targetName, selfLogin);
       }
-      
-      // 👇 新增這段攔截邏輯 👇
       if (targetUserId === ctx.me.id.toString()) {
         return ctx.reply("莎蘿的檔案可是秘密喔，不能隨便看～");
       }
-      // 👆 新增結束 👆
 
-      await ensureUserExists(env, targetUserId, targetName);
       const user: any = await env.ciallo_db.prepare(
         `SELECT * FROM users WHERE user_id = ?`
       ).bind(targetUserId).first();
       if (!user) return ctx.reply(`莎蘿對 ${targetName} 還沒有任何印象呢。`);
 
-      const title = getAffectionTitle(user.affection || 0);
+      const title = getAffectionTitle(user.affection || 0, targetUserId);
       const moodKey = (user.mood || "HAPPY") as Mood;
       const moodInfo = MOODS[moodKey] || MOODS.HAPPY;
+      const userLoginDisplay = user.username ? ` (${user.username})` : "";
+      
       const summary = user.conversation_summary || "目前沒有特別的記憶。";
       let likes = "無";
       try { const p = JSON.parse(user.user_likes || '[]'); if (p.length > 0) likes = p.join("、"); } catch { /* ignore */ }
       let dislikes = "無";
       try { const p = JSON.parse(user.user_dislikes || '[]'); if (p.length > 0) dislikes = p.join("、"); } catch { /* ignore */ }
 
+      // 檢查是否有相遇序號
+      const orderText = user.join_order ? `\n🔢 相遇序號：第 ${user.join_order} 位客人` : "";
+
       const profileText = `
  🌸 莎蘿的腦內筆記 🌸
  ---------------------------
- 👤 對象： ${targetName}
+ 👤 對象： ${targetName}${userLoginDisplay}${orderText}
  ❤️ 好感度： ${user.affection || 0} / 100 (${title})
-
-💖 莎蘿好感度：${user.affection || 0} / 100
-🏷️ 當前關係：${title}
-😶 莎蘿今日心情：${moodInfo.emoji} ${moodInfo.label}
-📅 互動天數：${user.check_in_days || 0} 天`;
+ 😶 莎蘿今日心情： ${moodInfo.emoji} ${moodInfo.label}
+ 📅 互動天數： ${user.check_in_days || 0} 天`;
 
       await ctx.reply(profileText);
     } catch (error) {
@@ -245,10 +255,11 @@ bot.use(async (ctx, next) => {
   // ── /nsfw（🔞 私密互動數據追蹤） ──
   bot.command("nsfw", async (ctx) => {
     try {
-      const userId = ctx.message?.from?.id.toString();
+      const userId = ctx.from?.id.toString();
       if (!userId) return;
-      const userName = ctx.message?.from?.first_name || "客人";
-      await ensureUserExists(env, userId, userName);
+      const userName = ctx.from?.first_name || "客人";
+      const userLogin = ctx.from?.username ? `@${ctx.from.username}` : undefined;
+      await ensureUserExists(env, userId, userName, userLogin);
       const user: any = await env.ciallo_db.prepare(
         `SELECT * FROM users WHERE user_id = ?`
       ).bind(userId).first();
@@ -429,10 +440,11 @@ ${specialMoments.length > 0 ? `📜 【特殊時刻】（最近 ${Math.min(3, sp
 
   // ── /daily ──
   bot.command("daily", async (ctx) => {
-    const userId = ctx.message?.from?.id.toString();
+    const userId = ctx.from?.id.toString();
     if (!userId) return;
-    const userName = ctx.message?.from?.first_name || "客人";
-    await ensureUserExists(env, userId, userName);
+    const userName = ctx.from?.first_name || "客人";
+    const userLogin = ctx.from?.username ? `@${ctx.from.username}` : undefined;
+    await ensureUserExists(env, userId, userName, userLogin);
     const user: any = await env.ciallo_db.prepare(
       `SELECT last_greeting_date, check_in_days FROM users WHERE user_id = ?`
     ).bind(userId).first();
@@ -452,10 +464,11 @@ ${specialMoments.length > 0 ? `📜 【特殊時刻】（最近 ${Math.min(3, sp
 
   // ── /gifts ──
   bot.command("gifts", async (ctx) => {
-    const userId = ctx.message?.from?.id.toString();
+    const userId = ctx.from?.id.toString();
     if (!userId) return;
-    const userName = ctx.message?.from?.first_name || "客人";
-    await ensureUserExists(env, userId, userName);
+    const userName = ctx.from?.first_name || "客人";
+    const userLogin = ctx.from?.username ? `@${ctx.from.username}` : undefined;
+    await ensureUserExists(env, userId, userName, userLogin);
     const user: any = await env.ciallo_db.prepare(
       `SELECT gifts_received FROM users WHERE user_id = ?`
     ).bind(userId).first();
@@ -497,9 +510,13 @@ ${specialMoments.length > 0 ? `📜 【特殊時刻】（最近 ${Math.min(3, sp
       return; // 不是給她的，乖乖閉嘴讓真正的經濟機器人 (殷娘莉莉) 處理
     }
 
-    const userId = ctx.message!.from.id.toString();
+    const userId = ctx.from?.id.toString();
+    if (!userId) return;
+    const userName = ctx.from?.first_name || "客人";
+    const userLogin = ctx.from?.username ? `@${ctx.from.username}` : undefined;
 
     try {
+      await ensureUserExists(env, userId, userName, userLogin);
       const user: any = await env.ciallo_db.prepare(
         `SELECT affection, gifts_received FROM users WHERE user_id = ?`
       ).bind(userId).first();
@@ -572,10 +589,11 @@ ${specialMoments.length > 0 ? `📜 【特殊時刻】（最近 ${Math.min(3, sp
 
   // ── /quest ──
   bot.command("quest", async (ctx) => {
-    const userId = ctx.message?.from?.id.toString();
+    const userId = ctx.from?.id.toString();
     if (!userId) return;
-    const userName = ctx.message?.from?.first_name || "客人";
-    await ensureUserExists(env, userId, userName);
+    const userName = ctx.from?.first_name || "客人";
+    const userLogin = ctx.from?.username ? `@${ctx.from.username}` : undefined;
+    await ensureUserExists(env, userId, userName, userLogin);
 
     const args = ctx.match?.trim();
 
@@ -621,6 +639,102 @@ ${specialMoments.length > 0 ? `📜 【特殊時刻】（最近 ${Math.min(3, sp
       `📋 【今日任務】\n\n${quest.description}\n\n完成後可獲得：好感度 +${quest.reward}\n使用 /quest status 查看完成狀態。`
     );
   });
+
+  // ── /group_impression (莎蘿的群組印象) ──
+  bot.command(["group_impression", "gi"], async (ctx) => {
+    if (ctx.chat?.type === "private") {
+      return ctx.reply("這個指令要在群組裡用，莎蘿才能看大家互動的樣子喔～");
+    }
+
+    try {
+      await ctx.replyWithChatAction("typing");
+      const chatId = ctx.chat.id.toString();
+      const roomName = ('title' in ctx.chat) ? (ctx.chat as any).title || "群組" : "群組";
+
+      // 1. 抓取最近 50 條對話作為脈絡
+      const { results: recentMsgs } = await env.ciallo_db.prepare(`
+        SELECT m.role, m.content, u.first_name, u.user_notes
+        FROM messages m
+        LEFT JOIN users u ON m.user_id = u.user_id
+        WHERE m.chat_id = ?
+        ORDER BY m.id DESC LIMIT 50
+      `).bind(chatId).all();
+
+      if (!recentMsgs || recentMsgs.length < 5) {
+        return ctx.reply("唔...莎蘿對這個群組的印象還不夠深呢，大家再多聊聊天吧！");
+      }
+
+      const historyText = (recentMsgs as any[]).reverse()
+        .map(m => {
+          let name = m.first_name || "未知客人";
+          try {
+            const notes = JSON.parse(m.user_notes || '{}');
+            if (notes["稱呼"]) name = notes["稱呼"];
+          } catch {}
+          const content = m.content.replace(/^\[.*?\]\s*/, '').replace(/^\(莎蘿對.*?的回覆\)\s*/, '');
+          return `${m.role === 'user' ? name : '莎蘿'}: ${content}`;
+        })
+        .join('\n');
+
+      // 2. 抓取本群最活躍的 10 位用戶的摘要
+      const { results: userSummaries } = await env.ciallo_db.prepare(`
+        SELECT u.first_name, u.conversation_summary, u.affection, COUNT(m.id) as msg_count
+        FROM users u
+        JOIN messages m ON u.user_id = m.user_id
+        WHERE m.chat_id = ? AND u.first_name IS NOT NULL
+        GROUP BY u.user_id
+        ORDER BY msg_count DESC LIMIT 10
+      `).bind(chatId).all();
+
+      let memberContext = "【活躍成員記憶碎片】:\n";
+      for (const u of (userSummaries as any[])) {
+        memberContext += `- ${u.first_name} (好感 ${u.affection}): ${u.conversation_summary || '初次見面'}\n`;
+      }
+
+      // 3. 呼叫 AI 生成總結
+      const messages = [
+        {
+          role: "system",
+          content: `你現在是莎蘿(Ciallo)，18歲高三生，在「紫羅蘭酒館」打工。你的性格活潑可愛、樂天開朗、直率俏皮且帶點微毒舌。請使用「書面語（繁體中文）」撰寫報告，不要使用粵語口語。`
+        },
+        {
+          role: "user",
+          content: `
+請根據以下群組「${roomName}」的最近對話以及你對成員的記憶，寫一段「群組觀察報告」。
+
+${memberContext}
+
+【最近對話紀錄】:
+${historyText}
+
+【任務要求】:
+1. 內容需涵蓋：對群組整體氛圍的評價、對幾位活躍成員的有趣觀察、以及莎蘿對這個群組未來的期待。
+2. 保持你的角色性格，講話要俏皮、可愛，偶爾可以有一點點調皮的吐槽。
+3. 總結字數控制在 150-300 字左右。
+4. 最後請以「Ciallo～」作為結尾。
+`
+        }
+      ];
+
+      const { fetchWithFallback } = await import("./deepseek");
+      const data = await fetchWithFallback(env, {
+        model: "deepseek-v4-pro",
+        messages: messages,
+        temperature: 0.7,
+      });
+      
+      if (data?.choices?.[0]?.message?.content) {
+        let aiReply = data.choices[0].message.content.trim();
+        await ctx.reply(`🌸 **莎蘿的群組觀察報告：${roomName}** 🌸\n\n${aiReply}`, { parse_mode: "Markdown" });
+      } else {
+        await ctx.reply("（莎蘿想了很久，最後什麼都沒寫出來...）");
+      }
+    } catch (error) {
+      console.error("Group Impression Error:", error);
+      await ctx.reply("抱歉，莎蘿現在腦袋有點亂，寫不出總結呢... >_<");
+    }
+  });
+
 // ── /reset (GM or Boss only) ──
   bot.command("reset", async (ctx) => {
     // 1. 權限檢查：只有 ADMIN_USER_ID 或 BOSS_ID 可以使用
@@ -686,12 +800,51 @@ ${specialMoments.length > 0 ? `📜 【特殊時刻】（最近 ${Math.min(3, sp
     await ctx.reply("▶️ **莎蘿已經清醒過來了！**\n\n剛剛好像做了個奇怪的夢呢⋯⋯現在我恢復正常囉！大家想聊什麼？♡");
   });
 
+  // ── /setname (管理/老闆手動更名) ──
+  bot.command("setname", async (ctx) => {
+    const fromId = ctx.from?.id.toString();
+    if (fromId !== ADMIN_USER_ID && fromId !== BOSS_ID) return;
+
+    const targetMsg = ctx.message?.reply_to_message;
+    const newName = ctx.match?.trim();
+
+    if (!targetMsg?.from?.id || !newName) {
+      return ctx.reply("❌ 使用方式：請 **Reply** 某人的訊息並輸入 `/setname <新名字>`");
+    }
+
+    const targetUserId = targetMsg.from.id.toString();
+    const targetRealName = targetMsg.from.first_name || "客人";
+
+    try {
+      // 1. 取得現有筆記
+      const user: any = await env.ciallo_db.prepare(
+        `SELECT user_notes FROM users WHERE user_id = ?`
+      ).bind(targetUserId).first();
+      
+      let notes = {};
+      try { notes = JSON.parse(user?.user_notes || '{}'); } catch { notes = {}; }
+      
+      // 2. 更新稱呼
+      (notes as any)["稱呼"] = newName;
+
+      // 3. 寫回資料庫
+      await env.ciallo_db.prepare(
+        `UPDATE users SET user_notes = ? WHERE user_id = ?`
+      ).bind(JSON.stringify(notes), targetUserId).run();
+
+      await ctx.reply(`✅ 成功！現在莎蘿會稱呼 ${targetRealName} 為「${newName}」囉！`);
+    } catch (e) {
+      console.error("Setname error:", e);
+      await ctx.reply("❌ 更改失敗，請稍後再試。");
+    }
+  });
+
   // ── /addcg (GM only, 發送圖片 + caption 指令) ──
   bot.on(":photo", async (ctx, next) => {
     if (!ctx.message) return next();
     const caption = ctx.message.caption || '';
     if (!caption.startsWith('/addcg')) return next();
-    const adminId = ctx.message.from.id.toString();
+    const adminId = ctx.from?.id.toString();
     if (adminId !== ADMIN_USER_ID) return;
 
     const args = caption.trim().split(/\s+/);
@@ -1038,38 +1191,68 @@ bot.command("addkey", async (ctx) => {
 
       // 如果不是回覆她，也沒有 @她，也沒有直接叫她的名字，就乖乖閉嘴不處理
       if (!isReplyToBot && !isAtMentioned && !isNameCalled) {
-        console.log(`[群組過濾] 忽略非提及訊息: "${userMessage.substring(0, 15)}..."`);
+        if (ctx.message.photo) {
+          console.log(`[群組過濾] 忽略圖片訊息: 因為未提及機器人名稱或回覆機器人。`);
+        } else {
+          console.log(`[群組過濾] 忽略非提及訊息: "${userMessage.substring(0, 15)}..."`);
+        }
         return;
       }
     }
 
     try {
       await ctx.replyWithChatAction("typing");
-      const userId = ctx.message!.from.id.toString();
-      const userName = ctx.message!.from.first_name || "客人";
+      const userId = ctx.from?.id.toString();
+      if (!userId) return;
+      const userName = ctx.from?.first_name || "客人";
+      const userLogin = ctx.from?.username ? `@${ctx.from.username}` : undefined;
       const chatId = ctx.chat.id.toString();
 
       // ── 檢測回覆內容 (Reply Context) ──
       const replyMsg = ctx.message.reply_to_message;
       if (replyMsg) {
         const repliedName = replyMsg.from?.first_name || "客人";
-        const repliedText = replyMsg.text || replyMsg.caption || "(非文字內容)";
-        // 將被回覆的內容注入，讓莎蘿知道你在跟誰說話，在說什麼
-        userMessage = `[回覆 ${repliedName}：「${repliedText}」] ${userMessage}`;
+        const repliedLogin = replyMsg.from?.username ? `@${replyMsg.from.username}` : "";
+        
+        let contentBrief = "";
+        if (replyMsg.text) contentBrief = replyMsg.text;
+        else if (replyMsg.caption) contentBrief = replyMsg.caption;
+        else if (replyMsg.photo) contentBrief = "(圖片)";
+        else if (replyMsg.sticker) contentBrief = "(貼圖)";
+        else if (replyMsg.voice) contentBrief = "(語音)";
+        else if (replyMsg.video) contentBrief = "(影片)";
+        else contentBrief = "(非文字內容)";
+
+        if (contentBrief.length > 50) contentBrief = contentBrief.substring(0, 50) + "...";
+
+        // 如果回覆的是莎蘿自己 (判斷 ID 或 判斷是否為 bot)
+        if (replyMsg.from?.id === ctx.me.id || replyMsg.from?.is_bot) {
+            userMessage = `[回覆 莎蘿：「${contentBrief}」] ` + userMessage;
+        } else {
+            // 將被回覆的內容注入
+            const replyTag = repliedLogin ? `[回覆 ${repliedName}(${repliedLogin})：「${contentBrief}」] ` : `[回覆 ${repliedName}：「${contentBrief}」] `;
+            userMessage = replyTag + userMessage;
+        }
       }
 
-      // ── 圖像識別處理 ──
-      if (ctx.message.photo) {
-        const photos = ctx.message.photo;
+      // ── 圖像識別處理 (支持當前訊息 或 回覆中的圖片) ──
+      const photoMsg = ctx.message.photo ? ctx.message : (ctx.message.reply_to_message?.photo ? ctx.message.reply_to_message : null);
+
+      if (photoMsg && photoMsg.photo) {
+        const photos = photoMsg.photo;
         const bestPhoto = photos[photos.length - 1];
         
         try {
           // 1. 取得文件路徑
           const file = await ctx.api.getFile(bestPhoto.file_id);
           const fileUrl = `https://api.telegram.org/file/bot${env.BOT_TOKEN}/${file.file_path}`;
+          console.log(`📸 [Vision] 正在從 Telegram 下載圖片: ${bestPhoto.file_id}`);
           
           // 2. 下載圖片並轉為 base64
           const response = await fetch(fileUrl);
+          if (!response.ok) {
+            throw new Error(`Telegram 文件下載失敗: ${response.status} ${response.statusText}`);
+          }
           const arrayBuffer = await response.arrayBuffer();
           // 使用 nodejs_compat 提供的 Buffer
           const base64 = Buffer.from(arrayBuffer).toString('base64');
@@ -1078,17 +1261,18 @@ bot.command("addkey", async (ctx) => {
           const description = await analyzeImageWithGemini(env, base64, "image/jpeg");
           
           // 4. 拼接至 userMessage
-          userMessage = `[客人發送了一張圖片，內容描述如下：${description}] ${userMessage}`;
+          const imagePrefix = photoMsg === ctx.message ? "發送" : "回覆";
+          userMessage = `[客人${imagePrefix}了一張圖片，內容描述如下：${description}] ${userMessage}`;
           console.log(`📸 [Vision] 圖像識別完成: ${description.substring(0, 50)}...`);
         } catch (visionError) {
           console.error("Vision Processing Error:", visionError);
-          userMessage = `[客人發送了一張圖片，但系統識別失敗] ${userMessage}`;
+          userMessage = `[客人${photoMsg === ctx.message ? "發送" : "回覆"}了一張圖片，但系統識別失敗] ${userMessage}`;
         }
       }
 
       const roomName = (ctx.chat.type !== "private" && 'title' in ctx.chat) ? (ctx.chat as any).title || "群組" : "私人對話";
       const threadId = ctx.message.message_thread_id;
-      const { reply, image } = await callDeepSeek(env, execCtx, userId, userName, userMessage, chatId, roomName, threadId);
+      const { reply, image } = await callDeepSeek(env, execCtx, userId, userName, userMessage, chatId, roomName, threadId, userLogin);
       if (!reply) return; // 如果回覆為空（被去重），則不發送
 
       // ── 語音生成邏輯 ──
