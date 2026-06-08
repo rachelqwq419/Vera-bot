@@ -13,7 +13,16 @@ export default {
       return new Response("Ciallo! 這裡是莎蘿的酒館，請不要亂闖喔～", { status: 200 });
     }
 
+    // 🛑 機器人暫停中 (Maintenance Mode)
+    // 為了安全地停止機器人但不報錯（避免 Telegram 移除 Webhook），這裡直接回傳 200 OK 攔截所有請求。
+    // 當需要重新開啟時，只需將以下三行註解掉並重新部署即可。
+    return new Response("OK", { status: 200 });
+
+    /* 
+    // === 下方為正常運作邏輯，暫時被上面的 return 攔截 ===
     const bot = new Bot(env.BOT_TOKEN);
+    */
+    /*
     registerHandlers(bot, env, execCtx);
 
     try {
@@ -25,6 +34,7 @@ export default {
       console.error("Webhook 處理失敗:", error);
       return new Response("Error", { status: 500 });
     }
+    */
   },
 
   // ── 🆕 定時任務：穩定性增強版 ──
