@@ -590,7 +590,7 @@ ${specialMoments.length > 0 ? `📜 【特殊時刻】（最近 ${Math.min(3, sp
   // ── /force_fatigue (GM only, 手動進入全局冷卻) ──
   bot.command("force_fatigue", async (ctx) => {
     const userId = ctx.from?.id.toString();
-    if (userId !== ADMIN_USER_ID) return;
+    if (userId !== ADMIN_USER_ID) return ctx.reply("❌ 權限不足。此指令僅限創作者使用。");
     
     const now = new Date().toISOString();
     await env.ciallo_db.prepare(
@@ -604,7 +604,7 @@ ${specialMoments.length > 0 ? `📜 【特殊時刻】（最近 ${Math.min(3, sp
   // ── /force_recover (GM only, 手動結束全局冷卻) ──
   bot.command("force_recover", async (ctx) => {
     const userId = ctx.from?.id.toString();
-    if (userId !== ADMIN_USER_ID) return;
+    if (userId !== ADMIN_USER_ID) return ctx.reply("❌ 權限不足。此指令僅限創作者使用。");
 
     await env.ciallo_db.prepare(
       `UPDATE users SET last_sex_date = NULL WHERE user_id = 'FLAG_GLOBAL_SEX'`
@@ -1193,7 +1193,7 @@ bot.command("addkey", async (ctx) => {
     if (userMessage.startsWith("/")) {
       const lowerMsg = userMessage.toLowerCase();
       // 這裡列出所有已經註冊過的 command，防止重複處理
-      const registeredCommands = ["/start", "/ciallo", "/profile", "/nsfw", "/leaderboard", "/rank", "/top", "/daily", "/gifts", "/coin", "/fortune", "/temp", "/quest", "/reset", "/resetuser", "/setstat", "/addkey", "/checkkeys", "/cg", "/deletecg", "/checklogs"];
+      const registeredCommands = ["/start", "/ciallo", "/profile", "/nsfw", "/leaderboard", "/rank", "/top", "/daily", "/gifts", "/coin", "/fortune", "/temp", "/quest", "/reset", "/resetuser", "/setstat", "/addkey", "/checkkeys", "/cg", "/deletecg", "/checklogs", "/force_fatigue", "/force_recover"];
       // 使用精準匹配，防止 /coind 誤傷 /coin
       const isCmd = registeredCommands.some(cmd => {
         const parts = lowerMsg.split(/\s+/);
