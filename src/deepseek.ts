@@ -46,6 +46,34 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
 
   if (!userRecord) throw new Error(`User ${userId} not found after upsert`);
 
+  // ── 🔒 全局冷卻與疲勞機制 (Global ERP Cooldown) ──
+  // 取得全局最後行為時間 (存放於系統虛擬用戶 FLAG_GLOBAL_SEX)
+  const globalSexFlag = await env.ciallo_db.prepare(
+    `SELECT last_sex_date FROM users WHERE user_id = 'FLAG_GLOBAL_SEX'`
+  ).first() as { last_sex_date: string } | null;
+  
+  const lastGlobalSex = globalSexFlag?.last_sex_date ? new Date(globalSexFlag.last_sex_date) : new Date(0);
+  const minutesSinceLastSex = (now.getTime() - lastGlobalSex.getTime()) / (1000 * 60);
+  const isGlobalFatigued = minutesSinceLastSex < 60; // 👈 全服 60 分鐘冷卻期
+
+  // ── 🧠 情感與疲勞預處理 ──
+  const isSexAttempt = (lowerMsg.includes("(") || lowerMsg.includes("（")) && 
+                       romanceKeywords.some(kw => lowerMsg.includes(kw));
+
+  // 如果全服處於疲勞期且用戶嘗試色情互動
+  if (isSexAttempt && isGlobalFatigued && userId !== ADMIN_USER_ID) {
+    const remainingMins = Math.ceil(60 - minutesSinceLastSex);
+    console.warn(`⏳ [全局冷卻] 用戶 ${userName} 嘗試 ERP，但莎蘿處於疲勞期 (剩餘 ${remainingMins} 分鐘)`);
+    const fatigueReplies = [
+      "（一臉疲憊地推開你）...客人，我今天真的很累了，不想做這種事，請自重。",
+      "（眼神充滿厭煩）又來了...你們這些人除了這些就沒別的想說了嗎？我現在一點心情都沒有。",
+      "（抱著身體後退）別碰我...我現在感覺很不舒服，再這樣我要叫老闆了！",
+      "（冷淡地轉過頭）我還要工作，請不要在酒館裡動手動腳的。"
+    ];
+    const reply = fatigueReplies[Math.floor(Math.random() * fatigueReplies.length)];
+    return { reply: reply + "\n\n(⚠️ 系統提示：莎蘿目前處於全局疲勞狀態，請稍後再試或進行日常對話。)" };
+  }
+
   // 👑 至高無上的主人：好感度永遠固定 100
   if (userId === ADMIN_USER_ID) {
     if (userRecord.affection !== 100) {
@@ -790,6 +818,16 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
   const finalBlindfold = (userRecord.blindfold_count || 0) + s.blindfold;
 
   const lastSexDate = s.sex > 0 ? new Date().toISOString() : userRecord.last_sex_date;
+  
+  // ── 🔒 更新全局最後行為時間 ──
+  if (s.sex > 0) {
+    await env.ciallo_db.prepare(
+      `INSERT INTO users (user_id, first_name, last_sex_date) VALUES ('FLAG_GLOBAL_SEX', 'SYSTEM_FLAG', ?)
+       ON CONFLICT(user_id) DO UPDATE SET last_sex_date = excluded.last_sex_date`
+    ).bind(lastSexDate).run();
+    console.log(`🔥 [全局行為記錄] 全服進入 ERP 冷卻時間`);
+  }
+
   const lastMessageTime = new Date().toISOString();
 
   // 最愛玩法
