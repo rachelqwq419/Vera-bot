@@ -859,7 +859,7 @@ ${historyText}
 
     await env.ciallo_db.prepare(
       `INSERT INTO cgs (category, file_id) VALUES (?, ?)`
-    ).bind(category, fileId).run();
+    ).bind(category, fileId).run(); 
 
     const displayName = CG_CATEGORIES[category] || category;
     await ctx.reply(`✅ 成功將圖片加入【${displayName}】分類！`);
