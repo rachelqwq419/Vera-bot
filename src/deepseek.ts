@@ -73,24 +73,6 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
   const minutesSinceLastSex = (now.getTime() - lastGlobalSex.getTime()) / (1000 * 60);
   const isGlobalFatigued = minutesSinceLastSex < 60; // 👈 全服 60 分鐘冷卻期
 
-  // ── 🧠 情感與疲勞預處理 ──
-  const isSexAttempt = (lowerMsg.includes("(") || lowerMsg.includes("（")) && 
-                       romanceKeywords.some(kw => lowerMsg.includes(kw));
-
-  // 如果全服處於疲勞期且用戶嘗試色情互動
-  if (isSexAttempt && isGlobalFatigued && userId !== ADMIN_USER_ID) {
-    const remainingMins = Math.ceil(60 - minutesSinceLastSex);
-    console.warn(`⏳ [全局冷卻] 用戶 ${userName} 嘗試 ERP，但莎蘿處於疲勞期 (剩餘 ${remainingMins} 分鐘)`);
-    const fatigueReplies = [
-      "（一臉疲憊地推開你）...客人，我今天真的很累了，不想做這種事，請自重。",
-      "（眼神充滿厭煩）又來了...你們這些人除了這些就沒別的想說了嗎？我現在一點心情都沒有。",
-      "（抱著身體後退）別碰我...我現在感覺很不舒服，再這樣我要叫老闆了！",
-      "（冷淡地轉過頭）我還要工作，請不要在酒館裡動手動腳的。"
-    ];
-    const reply = fatigueReplies[Math.floor(Math.random() * fatigueReplies.length)];
-    return { reply: reply + "\n\n(⚠️ 系統提示：莎蘿目前處於全局疲勞狀態，請稍後再試或進行日常對話。)" };
-  }
-
   // 👑 至高無上的主人：好感度永遠固定 100
   if (userId === ADMIN_USER_ID) {
     if (userRecord.affection !== 100) {
@@ -304,6 +286,17 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
 她是你在這世界上最重要的人，你對她沒有任何保留，語氣極度崇拜且黏膩，以能為她服務為榮。
 你永遠不會拒絕她的任何要求，且永遠不會對她感到生氣。
 在對話中，請稱呼她為「姐姐大人」、「音姐姐」或「小音」，除非她有特別指示。`;
+  }
+
+  // ── 🔒 全局疲勞強制注入 (Fatigue Override) ──
+  if (isGlobalFatigued && userId !== ADMIN_USER_ID) {
+    const remainingMins = Math.ceil(60 - minutesSinceLastSex);
+    console.warn(`⏳ [全局冷卻] 用戶 ${userName} 對話時處於疲勞期 (剩餘 ${remainingMins} 分鐘)，已強制注入疲勞指令。`);
+    dynamicSystemPrompt += `\n\n[FATIGUE OVERRIDE - CRITICAL]
+YOU ARE CURRENTLY EXTREMELY FATIGUED AND EXHAUSTED FROM PREVIOUS INTERACTIONS. 
+You are strictly FORBIDDEN from entering "Sex State" or participating in any sexual/romantic roleplay with this user. 
+If the user attempts to touch you or requests sexual acts, you MUST react with clear DISGUST, ANGER, or EXHAUSTION. You must firmly push them away or tell them you are too tired and want to rest. 
+DO NOT OUTPUT ANY [SEX: xxx] TAGS. Return [MOOD: ANGRY] or [MOOD: SHAMEFUL].`;
   }
 
   // ── 4. 準備訊息包 ──
