@@ -7,7 +7,24 @@ import { CIALLO_GUIDE } from "./guide";
 import { drawWithComfyUI } from "./comfyui";
 
 export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: string, userName: string, userMessage: string, chatId: string, roomName: string = "未知房間", threadId?: number, userLogin?: string): Promise<{ reply: string, image?: Uint8Array }> {
-  // ── 0. 防重複處理邏輯 ──
+  // ── 0. 基礎訊息處理 (提前定義以供攔截器使用) ──
+  const lowerMsg = userMessage.toLowerCase();
+  const cleanMsgForFilter = userMessage
+    .replace(/\[回覆\s+[^\]]+：「.*?」\]/g, "") 
+    .replace(/\[客人.*?了一張圖片.*?\]/g, "")
+    .trim()
+    .toLowerCase();
+
+  const romanceKeywords = [
+    // 表白/交往
+    "交往", "約會", "在一起", "做我女朋友", "做我老婆", "做我男友", "做我女友",
+    "girlfriend", "boyfriend", "date", "dating", "結婚", "嫁給我",
+    // 親密稱呼（低好感時禁止）
+    "老婆", "老公", "bb", "親愛的", "honey", "darling", "小寶貝",
+    "吻我", "親我", "kiss", "胸", "摸", "揉", "脫", "做愛", "上床", "內射", "乳",
+    "摟", "臀", "屁股", "推倒", "底褲", "內衣", "壓在", "裙", "舔"
+  ];
+
   const now = new Date();
   const { results: lastMsgs } = await env.ciallo_db.prepare(
     `SELECT content, created_at FROM messages WHERE user_id = ? AND chat_id = ? AND role = 'user' ORDER BY id DESC LIMIT 1`
@@ -217,9 +234,10 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
   // ── 判斷是否經過一段時間 (時間推移機制) ──
   if (userRecord.last_message_time) {
     const lastMsgTime = new Date(userRecord.last_message_time);
+    const nowUtc = new Date(); // Use real current UTC time for diff calculation
     
     // 計算當前時間與最後發言時間的差距（換算成小時）
-    const diffHours = (hkTime.getTime() - lastMsgTime.getTime()) / (1000 * 60 * 60);
+    const diffHours = (nowUtc.getTime() - lastMsgTime.getTime()) / (1000 * 60 * 60);
 
     // 設定幾個鐘頭當作「時間已經推移」，這裡設為 4 小時
     const RESET_HOURS = 4; 
@@ -560,27 +578,7 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
   let gifts: string[] = [];
   try { gifts = JSON.parse(userRecord.gifts_received || '[]'); } catch (_e) { /* ignore */ }
 
-  const lowerMsg = userMessage.toLowerCase();
-  
-  // ── 過濾掉系統生成的 context tags（如 [回覆 莎蘿：「...」]）以避免誤判 ──
-  // 我們只檢查用戶真正輸入的部分，避免被回覆內容中的關鍵字誤導
-  const cleanMsgForFilter = userMessage
-    .replace(/\[回覆\s+[^\]]+：「.*?」\]/g, "") 
-    .replace(/\[客人.*?了一張圖片.*?\]/g, "")
-    .trim()
-    .toLowerCase();
-
-  // 🔒 低好感浪漫攔截器：好感<30 時檢測戀愛/表白語言並強制扣分
   const currentAffection = userRecord.affection || 0;
-  const romanceKeywords = [
-    // 表白/交往
-    "交往", "約會", "在一起", "做我女朋友", "做我老婆", "做我男友", "做我女友",
-    "girlfriend", "boyfriend", "date", "dating", "結婚", "嫁給我",
-    // 親密稱呼（低好感時禁止）
-    "老婆", "老公", "bb", "親愛的", "honey", "darling", "小寶貝",
-    "吻我", "親我", "kiss", "胸", "摸", "揉", "脫", "做愛", "上床", "內射", "乳",
-    "摟", "臀", "屁股", "推倒", "底褲", "內衣", "壓在", "裙", "舔"
-  ];
   const isRomanceAttempt = romanceKeywords.some(kw => cleanMsgForFilter.includes(kw));
   
   // 👑 至高無上的主人：豁免所有浪漫/調情攔截
