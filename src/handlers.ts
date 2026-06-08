@@ -587,6 +587,32 @@ ${specialMoments.length > 0 ? `📜 【特殊時刻】（最近 ${Math.min(3, sp
     await ctx.reply(`🌡️ 已將 AI 溫度調整為 ${value}。較低溫度（0.3~0.7）讓莎蘿更穩定，較高溫度（1.0~2.0）讓莎蘿更有創造力。`);
   });
 
+  // ── /force_fatigue (GM only, 手動進入全局冷卻) ──
+  bot.command("force_fatigue", async (ctx) => {
+    const userId = ctx.from?.id.toString();
+    if (userId !== ADMIN_USER_ID) return;
+    
+    const now = new Date().toISOString();
+    await env.ciallo_db.prepare(
+      `INSERT INTO users (user_id, first_name, last_sex_date) VALUES ('FLAG_GLOBAL_SEX', 'SYSTEM_FLAG', ?)
+       ON CONFLICT(user_id) DO UPDATE SET last_sex_date = excluded.last_sex_date`
+    ).bind(now).run();
+
+    await ctx.reply("😫 **[GM 強制] 莎蘿現在感到非常疲勞。**\n\n全服已進入 ERP 冷卻狀態（60 分鐘）。");
+  });
+
+  // ── /force_recover (GM only, 手動結束全局冷卻) ──
+  bot.command("force_recover", async (ctx) => {
+    const userId = ctx.from?.id.toString();
+    if (userId !== ADMIN_USER_ID) return;
+
+    await env.ciallo_db.prepare(
+      `UPDATE users SET last_sex_date = NULL WHERE user_id = 'FLAG_GLOBAL_SEX'`
+    ).bind().run();
+
+    await ctx.reply("✨ **[GM 強制] 莎蘿恢復了精神！**\n\n全局冷卻已清除，她現在可以正常互動了。");
+  });
+
   // ── /quest ──
   bot.command("quest", async (ctx) => {
     const userId = ctx.from?.id.toString();
