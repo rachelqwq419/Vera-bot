@@ -4,9 +4,19 @@
 [![Tech Stack](https://img.shields.io/badge/Stack-TypeScript%20%7C%20Cloudflare%20Workers%20%7C%20D1%20Database-blue)](https://workers.cloudflare.com/)
 [![LLM Engine](https://img.shields.io/badge/LLM-DeepSeek--v4--pro-green)](https://api.deepseek.com)
 [![Bot Framework](https://img.shields.io/badge/Framework-grammy.js-yellow)](https://grammy.dev/)
+[![GitHub Repo](https://img.shields.io/badge/GitHub-Vera--bot-181717?logo=github)](https://github.com/rachelqwq419/Vera-bot)
 [![NSFW Content](https://img.shields.io/badge/Content-NSFW%20%2F%20Erotic%20Roleplay-red)](#)
 
-`vera-bot` 是一款專為 Telegram 群組與私聊設計的高級二次元角色扮演互動機器人。項目以 **薇拉 (Vera)** — 一位 18 歲傲嬌高中生兼酒館看板娘為核心人物設定，底層架構完全運行於 Serverless 環境，具備完整的數據持久化、動態時間場景切換、精密的好感度里程碑控制，以及深度定制的 **成人內容 (NSFW/ERP) 狀態機與成就解鎖系統**。
+`vera-bot` 是一款專為 Telegram 群組與私聊設計的高級二次元角色扮演互動機器人。項目以 **薇拉 (Vera)** — 一位 18 歲傲嬌高中生兼酒館看板娘為核心人物設定，底層架構完全運行於 Serverless 環境。
+
+---
+
+## 🚀 部署與連接說明
+
+由於項目已從 `ciallo-bot` 更名為 `vera-bot`：
+1. **部署網址**：執行 `npm run deploy` 後，機器人將部署至 `https://vera-bot.rachelqwq419.workers.dev`。
+2. **Telegram Webhook**：請務必更新您的 Telegram Bot Webhook 設定，指向新的網址以確保連接正常。
+3. **代碼更新**：使用 `git push origin main` 將最新更改推送到新的 [GitHub 倉庫](https://github.com/rachelqwq419/Vera-bot)。
 
 ---
 
