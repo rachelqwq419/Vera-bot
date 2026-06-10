@@ -885,16 +885,17 @@ bot.command("addkey", async (ctx) => {
     if (!ctx.message) return;
     if (ctx.message.from?.is_bot) return;
 
-    // ── 🛡️ [去重機制] 檢查 Update ID 防止 Telegram Timeout 重試導致的重複回覆 ──
-    const updateId = ctx.update.update_id;
+    // ── 🛡️ [去重機制] 檢查 Message ID 防止多個 Bot Webhook 或 Timeout 導致的重複回覆 ──
+    const chatIdStr = ctx.chat.id.toString();
+    const msgId = ctx.message.message_id;
     try {
-      await env.vera_db.prepare(`INSERT INTO processed_updates (update_id) VALUES (?)`).bind(updateId).run();
+      await env.vera_db.prepare(`INSERT INTO processed_messages (chat_id, message_id) VALUES (?, ?)`).bind(chatIdStr, msgId).run();
     } catch (e) {
-      console.warn(`[去重攔截] 偵測到重複的 Update ID: ${updateId}，已跳過處理。`);
+      console.warn(`[去重攔截] 偵測到重複的訊息: Chat ${chatIdStr}, Msg ${msgId}，已跳過處理。`);
       return;
     }
 
-    const chatId = ctx.chat.id.toString();
+    const chatId = chatIdStr;
     const threadId = ctx.message.message_thread_id; // 取得當前 Thread ID
 
     // 🛑 [管理員/老闆控制]：檢查是否處於停止狀態
