@@ -1,115 +1,98 @@
-# 🍇 vera-bot (薇拉 AI)
+# 🍇 Vera-bot (薇拉 AI)
+
 > **基於 Cloudflare Workers + D1 Database + DeepSeek API 的二次元傲嬌看板娘與私密互動 Telegram 機器人**
 
 [![Tech Stack](https://img.shields.io/badge/Stack-TypeScript%20%7C%20Cloudflare%20Workers%20%7C%20D1%20Database-blue)](https://workers.cloudflare.com/)
-[![LLM Engine](https://img.shields.io/badge/LLM-DeepSeek--v4--pro-green)](https://api.deepseek.com)
+[![LLM Engine](https://img.shields.io/badge/LLM-DeepSeek--V3-green)](https://api.deepseek.com)
 [![Bot Framework](https://img.shields.io/badge/Framework-grammy.js-yellow)](https://grammy.dev/)
 [![GitHub Repo](https://img.shields.io/badge/GitHub-Vera--bot-181717?logo=github)](https://github.com/rachelqwq419/Vera-bot)
-[![NSFW Content](https://img.shields.io/badge/Content-NSFW%20%2F%20Erotic%20Roleplay-red)](#)
 
-`vera-bot` 是一款專為 Telegram 群組與私聊設計的高級二次元角色扮演互動機器人。項目以 **薇拉 (Vera)** — 一位 18 歲傲嬌高中生兼酒館看板娘為核心人物設定，底層架構完全運行於 Serverless 環境。
-
----
-
-## 🚀 部署與連接說明
-
-由於項目已從 `ciallo-bot` 更名為 `vera-bot`：
-1. **部署網址**：執行 `npm run deploy` 後，機器人將部署至 `https://vera-bot.rachelqwq419.workers.dev`。
-2. **Telegram Webhook**：請務必更新您的 Telegram Bot Webhook 設定，指向新的網址以確保連接正常。
-3. **代碼更新**：使用 `git push origin main` 將最新更改推送到新的 [GitHub 倉庫](https://github.com/rachelqwq419/Vera-bot)。
+`Vera-bot` 是一款專為 Telegram 平台設計的高級二次元角色扮演互動機器人。項目核心人物 **薇拉 (Vera)** 定位為一名 18 歲的傲嬌高中生兼酒館看板娘。本項目完全運行於 Serverless 環境，結合了精密的好感度控制系統、動態時間場景切換、以及深度定制的成人內容 (NSFW/ERP) 狀態機。
 
 ---
 
-## 🎯 項目核心目的
+## 🌟 角色核心設定：薇拉 (Vera)
 
-1. **極低維護成本的沉浸式伴侶**：利用 Cloudflare Workers 的邊緣運算與 D1 分散式數據庫，實現接近 **零成本** 的 24 小時高並發自動化營運。
-2. **打破傳統 AI 的死板服從感**：通過精心調校的 System Prompt 與思考鏈攔截，賦予角色「狡辯」、「傲嬌」、「腹黑」等真實人格特徵，拒絕成為毫無主見的服從型工具。
-3. **極致的私密情色角色扮演 (ERP)**：提供安全、私密且數據化的成人互動體驗，將精細的性行為動作轉化為結構化數據，與核心好感度系統深度綁定。
+薇拉擁有多重身份與鮮明的性格特徵，旨在提供極具沉浸感的互動體驗：
 
----
-
-## 🚀 核心功能特點
-
-### 1. 🔞 精密成人互動與閾值狀態機 (NSFW / ERP System)
-機器人具備動態狀態切換機制。當檢測到用戶使用括號 `()` 描述性行為動作（如：脫衣、愛撫、插入等），且用戶與薇拉的 **好感度 (Affection)** 達到指定門檻時，會自動激活「性愛狀態」或「發情狀態」，語氣轉為嬌喘、大膽與主動應合。
-根據數據庫中的好感度分階，嚴格執行以下**性愛門檻表**：
-* **0 - 29（陌生/普通）**：堅決拒絕一切肢體接觸與性暗示。
-* **30 - 49（熟客）**：允許純情互動，僅限牽手、摸頭。
-* **50 - 69（朋友）**：解鎖常規邊緣與核心性交（接吻、常規性交、口交、乳交、手交）。
-* **70 - 79（深厚羈絆）**：解鎖輕度 BDSM、粗暴後入、深喉，當好感 ≥ 75 時允許稱呼「主人」。
-* **80 - 89（特別的存在）**：解鎖特殊道具與情境（項圈、肛塞、真空圍裙、連續高潮），允許在日常狀態下提出私密自拍/約會。
-* **90 - 100（終極忠誠侍奉）**：解鎖絕對支配領域（全天候臣服、顏射吞精、主動索求）。
-
-> **⚠️ 注意**：薇拉與用戶的關係嚴格限定為「主人與侍奉者」或「極親密好友」。除創作者（音）外，禁止與任何用戶建立名義上的戀愛關係（如男朋友、老公、老婆等）。
-
-### 2. 🎭 動態時間與季節感知系統
-機器人通過香港時間 (UTC+8) 及季節感知，自動進行 **三段式日常生活演繹**。違反當前時間線的設定將被視為最高優先級的角色崩壞並被杜絕：
-* **校園模式 (06:00 - 15:59)**：身穿高中制服，專注於談論學業、同學和校園八卦，此時絕不提及酒館打工。
-* **酒館打工 (16:00 - 23:59)**：身穿「cute board girl uniform, purple frilly apron, white blouse with high collar, loose fit, short pleated skirt, thigh-high stockings, purple ribbon bow tie, lace trim details, innocent schoolgirl vibe, headdress」，熱情招徠客人、點單、聊酒館日常。
-* **居家私密 (00:00 - 05:59)**：身穿寬鬆居家睡衣，處於放鬆、慵懶的床頭聊天狀態，話題更具私密性。
-
-### 3. 🏆 結構化性行為統計與成就解鎖系統
-項目內置了一套微型遊戲化的數據跟蹤引擎。每一次互動中 AI 輸出的標籤（例如 `[SEX: creampie]`, `[SEX: kiss]`）都會被正則解析並沉澱至 D1 SQL 數據庫。
-* **多維度計數器**：精確統計體位（正常位、騎乘位、反向騎乘、壁咚、69式、深喉等）與特殊情境（洗手間、制服誘惑、黑絲、蒙眼）。
-* **成就判定**：多達 30+ 款獨特成就（如：*“初內射：第一次被你內射”*、*“圍裙肉便器：穿著女僕圍裙被幹超過10次”*）。當用戶在對話中達成隱藏條件，系統會發出全體廣播並解鎖專屬頭銜。
-
-### 4. 🧠 記憶自動總結與長期羈絆 (Long-term Memory)
-為了攻克大語言模型 Context 窗口長度限制與遺忘問題，項目實現了異步記憶壓縮機制：
-* 互動每滿 **25 條訊息**，機器人會自動在後台觸發一個低 Temperature 的無情數據總結程式。
-* 提取最新對話中用戶的**喜好 (Likes)**、**厭惡 (Dislikes)** 以及關係核心進展，更新至 `users` 表的 `conversation_summary` 字段，作為下一次對話的永久 System Prompt 上下文。
-
-### 5. 👥 多用戶群組隔離與防串線架構
-在大型群組聊天室中，項目通過強制在 System Prompt 的 Input 前端拼接 `[用戶名|好感度]` 標籤。AI 在生成回覆前必須進行**對象強制校驗**，徹底根治了傳統群組 Bot 常見的「對著 A 用戶叫 B 用戶名字」或「將 A 的床頭記憶套用到 B 身上」的角色崩塌問題。
+*   **性格標籤**：傲嬌 (Tsundere)、微毒舌 (Sharp-tongued)、外冷內熱。
+*   **外貌特徵**：155cm，紫髮紫瞳，獨特的水母頭髮型（Jellyfish Cut）。
+*   **動態身份**：
+    *   **校園模式 (06:00 - 15:59)**：身著高中制服，話題聚焦於學業與校園生活。
+    *   **酒館模式 (16:00 - 23:59)**：身著精緻的女僕裝，在「紫羅蘭酒館」擔任看板娘。
+    *   **居家模式 (00:00 - 05:59)**：穿著寬鬆睡衣，展現放鬆且私密的一面。
 
 ---
 
-## 🛠️ 技術棧
+## 🚀 核心功能特性
 
-* **語言 / 運行環境**：TypeScript / Cloudflare Workers (Wrangler v4)
-* **機器人框架**：`grammy` (基於 Cloudflare-mod Webhook 模式優化)
-* **LLM 模型**：`deepseek-v4-pro` (兼具高性能與深度解析能力)
-* **數據庫引擎**：Cloudflare D1 (分散式 SQLite 邊緣數據庫)
-* **版本控制**：Git & GitHub 完全集成
+### 1. 🎭 動態場景與時間感知
+系統會根據香港時間 (UTC+8) 自動切換薇拉的身份設定、服裝描述及對話風格。角色會嚴格遵守當前時間線的行為邏輯。
 
----
+### 2. 💖 數據驅動的好感度系統
+透過 D1 數據庫記錄用戶與薇拉的每一項互動：
+*   **好感度分階**：從「陌生」到「終極忠誠」，薇拉的語氣、稱呼及解鎖動作會隨好感度提升而產生顯著變化。
+*   **互動追蹤**：記錄簽到天數、禮物贈送次數及各類細節互動數據。
 
-## 📋 機器人全指令列表
+### 3. 🔞 精密 NSFW/ERP 狀態機
+內置自動化標籤解析引擎，能識別用戶的動作描述並觸發相應的成人互動狀態。
+*   **動作檢測**：自動識別接吻、撫摸、性行為等 30 餘種體位與情境。
+*   **成就系統**：達成特定互動條件後，將自動解鎖成就並更新於用戶專屬檔案卡中。
 
-### 👤 普通用戶指令
-* `/start` — 重新激活機器人並發送歡迎語。
-* `/vera` — 顯示酒館菜單、可用功能及調教幫助指南。
-* `/profile` — 渲染極其精美的**個人專屬檔案卡**。包含好感度、關係稱號、今日心情、詳細的性行為次數追蹤（所有體位計數）以及已解鎖成就列表。
-* `/leaderboard` 或 `/rank` — 全谷好感度 VIP 羈絆排行榜。
-* `/rank sex` — 🔞 總性交次數群組名人堂。
-* `/rank achievements` — 🏆 成就解鎖數量爭霸榜。
-* `/daily` — 查看今日與薇拉的簽到/早晚安打卡狀態。
-* `/quest` — 領取今日隨機互動任務（如：分享一個秘密、送一朵花），完成後自動追加好感。
-* `/gifts` — 查閱送給薇拉的歷史禮物清單（玫瑰花 `🌹`、巧克力 `🍫` 累計數）。
-* `/fortune` — 抽取今日戀愛幸運占卜。
-* `/reset` — 🧹 清除用戶自身與薇拉的當前上下文對話歷史（不影響核心統計數據）。
-
-### 🔧 GM 管理員專屬指令 (ADMIN_USER_ID 鑑權)
-* `/setstat <欄位名> <數值>` — 強制改寫目標用戶的內存數據。支援 Reply 某個群組成員進行精準修改（如修改 `affection` 或各類 `sex_count`）。
-* `/resetuser` — 徹底清空某位不合規用戶在數據庫中的所有痕跡、對話紀錄與簽到。
-* `/temp <0.0 - 2.0>` — 動態調整 AI 的創造力溫度（低溫穩定，高溫大膽放蕩）。
+### 4. 🧠 長期記憶與數據壓縮
+*   **記憶總結**：系統每隔 25 條訊息會自動觸發非同步任務，對近期對話進行特徵提取與摘要，確保存儲核心羈絆。
+*   **向量檢索**：利用 Vectorize 實現語義化記憶搜索，使薇拉能夠「記住」用戶的細節愛好。
 
 ---
 
-## 📂 數據庫架構概覽 (`schema.sql`)
+## 🛠️ 技術架構
 
-系統核心基於一條大表 `users` 維持用戶與機器的全部關係纽帶：
-```sql
-CREATE TABLE users (
-    user_id TEXT PRIMARY KEY,
-    first_name TEXT NOT NULL,
-    affection INTEGER DEFAULT 0,
-    conversation_summary TEXT DEFAULT '',
-    mood TEXT DEFAULT 'HAPPY',
-    sex_count INTEGER DEFAULT 0,
-    creampie_count INTEGER DEFAULT 0,
-    kiss_count INTEGER DEFAULT 0,
-    -- ... 支持超過 35 個精細化行為特徵追蹤
-    achievements TEXT DEFAULT '[]',
-    gifts_received TEXT DEFAULT '[]',
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
+*   **Runtime**: Cloudflare Workers (TypeScript)
+*   **Framework**: `grammy` (Telegram Bot API)
+*   **Database**: Cloudflare D1 (SQL) & Vectorize (Vector Index)
+*   **LLM Engine**: DeepSeek-V3 / Gemini-1.5-Flash (Vision)
+*   **Image Gen**: ComfyUI API (後台異步生成自拍照)
+
+---
+
+## 📋 指令手冊
+
+### 用戶端指令
+*   `/start` - 初始化與薇拉的數據連線。
+*   `/vera` - 獲取薇拉的系統協議與幫助指南。
+*   `/profile` - 渲染精美的個人專屬數據檔案卡。
+*   `/daily` - 進行每日簽到與心情互動。
+*   `/cg` - 查看已解鎖的私密視覺圖鑑（私聊專用）。
+*   `/fortune` - 抽取今日戀愛占卜數據。
+
+### 管理員指令 (GM Only)
+*   `/addkey` - 動態新增 DeepSeek API 通路。
+*   `/setstat` - 手動修正用戶數據標籤。
+*   `/adminstop` - 讓薇拉進入純粹觀察模式。
+
+---
+
+## 📦 部署指南
+
+1.  **環境配置**：
+    ```bash
+    npm install
+    ```
+2.  **Secret 設置**：
+    ```bash
+    npx wrangler secret put BOT_TOKEN
+    npx wrangler secret put DEEPSEEK_API_KEY
+    ```
+3.  **發布至生產環境**：
+    ```bash
+    npm run deploy
+    ```
+
+---
+
+## ⚠️ 免責聲明
+
+本項目內含成人內容 (NSFW) 互動邏輯，僅供娛樂及技術研究用途。請確保您的使用符合當地法律法規。
+
+---
+*© 2026 Vera Project. Created by 音 (Yin).*
