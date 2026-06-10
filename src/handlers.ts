@@ -788,32 +788,16 @@ bot.command("addkey", async (ctx) => {
         `${roomLinks}\n\n` +
         `數據收集已經開始，別讓我對妳的表現感到失望。vera～`;
 
-      // 永遠發送到主群組(大廳)
-      await ctx.reply(welcomeMsg, { parse_mode: "Markdown", disable_web_page_preview: true, message_thread_id: undefined });
-
-      // 2. ⚡️ 同步在各個子頻道發送「預先迎接」標記 ⚡️
-      const targetRooms = (allRooms as any[]).slice(0, 5);
-      
-      // 確保 210 (休閒區) 被包含在內，如果它可見且不在前 5 名
-      const has210 = targetRooms.some(r => r.thread_id === 210);
-      const room210 = (allRooms as any[]).find(r => r.thread_id === 210);
-      if (!has210 && room210) targetRooms.push(room210);
-
-      for (const r of targetRooms) {
-        try {
-          await ctx.api.sendMessage(ctx.chat.id, 
-            `📊 **[樣本追蹤]**\n\n` +
-            `偵測到新樣本 ${mention} 即將抵達 **${r.room_name}**。\n` +
-            `📝 **區域簡報**：${r.description || '無詳細數據'}\n\n` +
-            `（薇拉打了個哈欠）好了，既然標記完了，我就繼續做我的實驗了。`,
-            { 
-              parse_mode: "Markdown",
-              message_thread_id: r.thread_id 
-            }
-          );
-        } catch (e) {
-          console.error(`向房間 ${r.thread_id} 發送預告失敗:`, e);
-        }
+      // 永遠只發送到休閒區 (Thread 210)
+      try {
+        await ctx.api.sendMessage(ctx.chat.id, welcomeMsg, { 
+          parse_mode: "Markdown", 
+          disable_web_page_preview: true, 
+          message_thread_id: 210 
+        });
+        console.log(`✅ [導航成功] 已將新人導航發送至休閒區 (Thread 210)`);
+      } catch (e) {
+        console.error("向 Thread 210 發送導覽失敗:", e);
       }
     }
   });
