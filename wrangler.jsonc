@@ -4,7 +4,7 @@
  */
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "ciallo-bot",
+	"name": "vera-bot",
 	"main": "src/index.ts",
 	"compatibility_date": "2026-05-20",
 	"observability": {
@@ -16,8 +16,8 @@
 	],
 	"d1_databases": [
 		{
-			"binding": "ciallo_db",
-			"database_name": "ciallo-db",
+			"binding": "vera_db",
+			"database_name": "vera-db",
 			"database_id": "b7a3755d-6551-45cf-b223-f5add2c71490",
 			"remote": true
 		}
@@ -25,7 +25,7 @@
 	"vectorize": [
 		{
 			"binding": "VECTOR_INDEX",
-			"index_name": "ciallo-memory-index"
+			"index_name": "vera-memory-index"
 		}
 	],
 	"ai": {

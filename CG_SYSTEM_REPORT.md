@@ -1,6 +1,6 @@
 # 🎨 动态 CG 图鉴与掉落系统 — 实作报告
 
-> **项目**：ciallo-bot（莎蘿 AI）  
+> **项目**：vera-bot（薇拉 AI）  
 > **日期**：2026-05-23  
 > **版本**：Phase 3
 
@@ -150,7 +150,7 @@ import { ..., CG_CATEGORIES, type Mood } from "./constants";
 6. **追加提示**：在 `finalReplyToUser` 末尾加上解锁提示
 
 ```typescript
-finalReplyToUser += `\n\n🎉 系統提示：恭喜解鎖隱藏 CG【${displayName}】！請私訊莎蘿輸入 /cg 領取及查看專屬圖鑑。`;
+finalReplyToUser += `\n\n🎉 系統提示：恭喜解鎖隱藏 CG【${displayName}】！請私訊薇拉輸入 /cg 領取及查看專屬圖鑑。`;
 ```
 
 #### C. batch UPDATE 扩展（第 415、428 行）
@@ -219,7 +219,7 @@ sixty_nine, deepthroat, shower, school_uniform, pantyhose, blindfold
 - 掉落时消息末尾会显示系统提示
 
 **不会**在群组直接发送图片，仅追加一行文字提示：
-> 🎉 系統提示：恭喜解鎖隱藏 CG【💋 親吻】！請私訊莎蘿輸入 /cg 領取及查看專屬圖鑑。
+> 🎉 系統提示：恭喜解鎖隱藏 CG【💋 親吻】！請私訊薇拉輸入 /cg 領取及查看專屬圖鑑。
 
 ### 5.2 查看图鉴
 
@@ -228,7 +228,7 @@ sixty_nine, deepthroat, shower, school_uniform, pantyhose, blindfold
 3. 机器人显示分类菜单：
 
 ```
-📸 【莎蘿的私密圖鑑】
+📸 【薇拉的私密圖鑑】
 
 請選擇要查看的分類：
 
@@ -251,7 +251,7 @@ sixty_nine, deepthroat, shower, school_uniform, pantyhose, blindfold
 
 ### 6.1 数据库迁移（手动执行）
 
-在 Cloudflare Dashboard → D1 → 选择 `ciallo_db` → Console 中执行：
+在 Cloudflare Dashboard → D1 → 选择 `vera_db` → Console 中执行：
 
 ```sql
 -- 1. 建立 cgs 表

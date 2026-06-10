@@ -10,7 +10,7 @@ export default {
       return new Response(JSON.stringify({ status: "ok" }), { headers: { "Content-Type": "application/json" } });
     }
     if (request.method !== "POST") {
-      return new Response("Ciallo! 這裡是莎蘿的酒館，請不要亂闖喔～", { status: 200 });
+      return new Response("vera! 這裡是莎蘿的酒館，請不要亂闖喔～", { status: 200 });
     }
 
     // 🛑 機器人維護模式 (Active Maintenance Mode)
@@ -27,11 +27,11 @@ export default {
       // 判斷是否有人找她
       const isReplyToBot = ctx.message.reply_to_message?.from?.id === ctx.me.id;
       const isAtMentioned = ctx.me.username && text.includes(`@${ctx.me.username}`);
-      const isNameCalled = text.includes("莎蘿") || text.includes("莎萝") || text.includes("Ciallo") || text.startsWith("/");
+      const isNameCalled = text.includes("莎蘿") || text.includes("莎萝") || text.includes("vera") || text.startsWith("/");
 
       if (isPrivate || isReplyToBot || isAtMentioned || isNameCalled) {
         try {
-          await ctx.reply("Ciallo～ 莎蘿目前正在系統維護中喔 💤\n暫時無法回覆大家，請等姐姐大人喚醒我再見吧～");
+          await ctx.reply("vera～ 莎蘿目前正在系統維護中喔 💤\n暫時無法回覆大家，請等姐姐大人喚醒我再見吧～");
         } catch (e) {
           console.error("發送維護訊息失敗:", e);
         }
@@ -61,7 +61,7 @@ export default {
   // ── 🆕 定時任務：穩定性增強版 ──
   async scheduled(event: ScheduledEvent, env: Env, execCtx: ExecutionContext) {
     // 查詢待處理或卡在發送中的任務 (限 3 條)
-    const { results } = await env.ciallo_db.prepare(
+    const { results } = await env.vera_db.prepare(
       `SELECT * FROM pending_images WHERE status IN ('pending', 'sending') LIMIT 3`
     ).all();
 
@@ -76,33 +76,33 @@ export default {
 
         if (image) {
           // 更新狀態為正在發送
-          await env.ciallo_db.prepare(`UPDATE pending_images SET status = 'sending' WHERE id = ?`).bind(row.id).run();
+          await env.vera_db.prepare(`UPDATE pending_images SET status = 'sending' WHERE id = ?`).bind(row.id).run();
 
           // 2. 發送到 Telegram 並獲取 file_id
           const fileId = await sendPhotoToTelegram(env.BOT_TOKEN, row.chat_id, image, "（畫好囉！這是你要的自拍照～♡）", row.thread_id);
 
           if (fileId) {
             // ... (存檔邏輯保持不變)
-            const cgRes = await env.ciallo_db.prepare(
+            const cgRes = await env.vera_db.prepare(
               `INSERT INTO cgs (category, file_id) VALUES ('selfie', ?) RETURNING id`
             ).bind(fileId).first() as any;
 
             if (cgRes && row.user_id) {
               const cgId = cgRes.id;
-              const user = await env.ciallo_db.prepare(`SELECT unlocked_cgs FROM users WHERE user_id = ?`).bind(row.user_id).first() as any;
+              const user = await env.vera_db.prepare(`SELECT unlocked_cgs FROM users WHERE user_id = ?`).bind(row.user_id).first() as any;
               let unlocked: number[] = [];
               if (user) {
                 try { unlocked = JSON.parse(user.unlocked_cgs || '[]'); } catch { unlocked = []; }
                 if (!unlocked.includes(cgId)) {
                   unlocked.push(cgId);
-                  await env.ciallo_db.prepare(`UPDATE users SET unlocked_cgs = ? WHERE user_id = ?`).bind(JSON.stringify(unlocked), row.user_id).run();
+                  await env.vera_db.prepare(`UPDATE users SET unlocked_cgs = ? WHERE user_id = ?`).bind(JSON.stringify(unlocked), row.user_id).run();
                 }
               }
             }
           }
 
           // 4. 標記完成
-          await env.ciallo_db.prepare(`UPDATE pending_images SET status = 'completed' WHERE id = ?`).bind(row.id).run();
+          await env.vera_db.prepare(`UPDATE pending_images SET status = 'completed' WHERE id = ?`).bind(row.id).run();
           console.log(`✅ [Cron] 任務 ${row.prompt_id} 已成功發送`);
         } else {
           // 檢查是否超時 (15 分鐘)
@@ -114,7 +114,7 @@ export default {
 
           if (isNaN(createdTime) || diffMin > 15) {
             console.warn(`⏳ [Cron] 任務 ${row.prompt_id} 超時或無效 (${Math.round(diffMin)}min)，標記為失敗`);
-            await env.ciallo_db.prepare(`UPDATE pending_images SET status = 'failed' WHERE id = ?`).bind(row.id).run();
+            await env.vera_db.prepare(`UPDATE pending_images SET status = 'failed' WHERE id = ?`).bind(row.id).run();
           } else {
             console.log(`⏳ [Cron] 任務 ${row.prompt_id} 尚未就緒，等待中... (${Math.round(diffMin)}min)`);
           }
@@ -124,10 +124,10 @@ export default {
 
         // 🚨 重要：如果是因為話題關閉導致的失敗，且 thread_id 為空，直接標記為 failed 防止死循環
         if (e.message.includes("TOPIC_CLOSED") || e.message.includes("400")) {
-           await env.ciallo_db.prepare(`UPDATE pending_images SET status = 'failed' WHERE id = ?`).bind(row.id).run();
+           await env.vera_db.prepare(`UPDATE pending_images SET status = 'failed' WHERE id = ?`).bind(row.id).run();
         }
 
-        await env.ciallo_db.prepare(
+        await env.vera_db.prepare(
           `INSERT INTO error_logs (user_id, chat_id, error_type, message, details) VALUES (?, ?, ?, ?, ?)`
         ).bind("SYSTEM", row.chat_id, "CRON_SEND_FAIL", e.message, `PromptID: ${row.prompt_id} | Thread: ${row.thread_id}`).run();
       }
