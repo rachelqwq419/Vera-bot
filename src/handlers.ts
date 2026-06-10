@@ -520,7 +520,7 @@ ${historyText}
     const { results: rooms } = await env.vera_db.prepare(
       `SELECT thread_id, room_name, description FROM rooms 
        WHERE chat_id = ? AND thread_id > 0 AND is_visible = 1 
-       ORDER BY thread_id ASC`
+       ORDER BY sort_order ASC, thread_id ASC`
     ).bind(chatId).all();
 
     if (!rooms || rooms.length === 0) {
@@ -749,6 +749,25 @@ bot.command("addkey", async (ctx) => {
     await ctx.reply(`✅ 好的，新成員加入時我會這樣介紹這裡：\n「${desc}」`);
   });
 
+  // ── /setroomorder (設定房間顯示順序) ──
+  bot.command("setroomorder", async (ctx) => {
+    const threadId = ctx.message?.message_thread_id;
+    const chatId = ctx.chat.id.toString();
+    const orderStr = ctx.match?.trim();
+
+    if (!threadId) return ctx.reply("請在子頻道（Topic）中使用此指令來設置該房間的排序。");
+    if (!orderStr) return ctx.reply("請輸入排序數字（越小越前面）：/setroomorder <數字>");
+    
+    const order = parseInt(orderStr, 10);
+    if (isNaN(order)) return ctx.reply("排序必須是純數字喔！");
+
+    await env.vera_db.prepare(
+      `UPDATE rooms SET sort_order = ? WHERE chat_id = ? AND thread_id = ?`
+    ).bind(order, chatId, threadId).run();
+
+    await ctx.reply(`✅ 好的，我已經將此房間的排序順序設定為 ${order}。`);
+  });
+
   // ── /purge_all_memory (GM/老闆 終極重置) ──
   bot.command("purge_all_memory", async (ctx) => {
     const fromId = ctx.from?.id.toString();
@@ -808,6 +827,7 @@ bot.command("addkey", async (ctx) => {
     const { results: allRooms } = await env.vera_db.prepare(
       `SELECT thread_id, room_name, description FROM rooms 
        WHERE chat_id = ? AND thread_id > 0 AND thread_id != 210 AND is_visible = 1 
+       ORDER BY sort_order ASC, thread_id ASC
        LIMIT 10`
     ).bind(chatId).all();
 
