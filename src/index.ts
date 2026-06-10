@@ -19,7 +19,7 @@ export default {
     registerHandlers(bot, env, execCtx);
 
     try {
-      const handleUpdate = webhookCallback(bot, "cloudflare-mod", {
+      const handleUpdate = webhookCallback(bot, "cloudflare", {
         timeoutMilliseconds: 60000, 
       });
       return await handleUpdate(request);

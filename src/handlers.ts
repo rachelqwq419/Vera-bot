@@ -835,6 +835,15 @@ bot.command("addkey", async (ctx) => {
     if (!ctx.message) return;
     if (ctx.message.from?.is_bot) return;
 
+    // ── 🛡️ [去重機制] 檢查 Update ID 防止 Telegram Timeout 重試導致的重複回覆 ──
+    const updateId = ctx.update.update_id;
+    try {
+      await env.vera_db.prepare(`INSERT INTO processed_updates (update_id) VALUES (?)`).bind(updateId).run();
+    } catch (e) {
+      console.warn(`[去重攔截] 偵測到重複的 Update ID: ${updateId}，已跳過處理。`);
+      return;
+    }
+
     const chatId = ctx.chat.id.toString();
     const threadId = ctx.message.message_thread_id; // 取得當前 Thread ID
 
