@@ -718,7 +718,7 @@ bot.command("addkey", async (ctx) => {
     if (!newName) return ctx.reply("請告訴我這個房間叫什麼名字：/setroomname <名字>");
 
     await env.vera_db.prepare(
-      `INSERT INTO rooms (chat_id, thread_id, room_name) VALUES (?, ?, ?)
+      `INSERT INTO rooms (chat_id, thread_id, room_name, sort_order) VALUES (?, ?, ?, 999)
        ON CONFLICT(chat_id, thread_id) DO UPDATE SET room_name = ?`
     ).bind(chatId, threadId, newName, newName).run();
 
@@ -742,7 +742,7 @@ bot.command("addkey", async (ctx) => {
     }
 
     await env.vera_db.prepare(
-      `INSERT INTO rooms (chat_id, thread_id, description, is_visible) VALUES (?, ?, ?, 1)
+      `INSERT INTO rooms (chat_id, thread_id, description, is_visible, sort_order) VALUES (?, ?, ?, 1, 999)
        ON CONFLICT(chat_id, thread_id) DO UPDATE SET description = ?, is_visible = 1`
     ).bind(chatId, threadId, desc, desc).run();
 
@@ -875,7 +875,7 @@ bot.command("addkey", async (ctx) => {
 
     if (name && threadId) {
       await env.vera_db.prepare(
-        `INSERT INTO rooms (chat_id, thread_id, room_name) VALUES (?, ?, ?)
+        `INSERT INTO rooms (chat_id, thread_id, room_name, sort_order) VALUES (?, ?, ?, 999)
          ON CONFLICT(chat_id, thread_id) DO UPDATE SET room_name = ?`
       ).bind(chatId, threadId, name, name).run();
       
@@ -894,7 +894,7 @@ bot.command("addkey", async (ctx) => {
 
     if (name && threadId) {
       await env.vera_db.prepare(
-        `INSERT INTO rooms (chat_id, thread_id, room_name) VALUES (?, ?, ?)
+        `INSERT INTO rooms (chat_id, thread_id, room_name, sort_order) VALUES (?, ?, ?, 999)
          ON CONFLICT(chat_id, thread_id) DO UPDATE SET room_name = ?`
       ).bind(chatId, threadId, name, name).run();
     }
