@@ -10,42 +10,13 @@ export default {
       return new Response(JSON.stringify({ status: "ok" }), { headers: { "Content-Type": "application/json" } });
     }
     if (request.method !== "POST") {
-      return new Response("vera! 這裡是莎蘿的酒館，請不要亂闖喔～", { status: 200 });
+      return new Response("vera! 這裡是薇拉的酒館，請不要亂闖喔～", { status: 200 });
     }
 
-    // 🛑 機器人維護模式 (Active Maintenance Mode)
-    // 這裡我們初始化 bot，但只掛載一個全域攔截器，用來發送罐頭訊息。
     const bot = new Bot(env.BOT_TOKEN);
     
-    bot.use(async (ctx, next) => {
-      // 如果不是訊息，就不理會 (例如 callback query)
-      if (!ctx.message) return;
-      
-      const text = ctx.message.text || ctx.message.caption || "";
-      const isPrivate = ctx.chat?.type === "private";
-      
-      // 判斷是否有人找她
-      const isReplyToBot = ctx.message.reply_to_message?.from?.id === ctx.me.id;
-      const isAtMentioned = ctx.me.username && text.includes(`@${ctx.me.username}`);
-      const isNameCalled = text.includes("莎蘿") || text.includes("莎萝") || text.includes("vera") || text.startsWith("/");
-
-      if (isPrivate || isReplyToBot || isAtMentioned || isNameCalled) {
-        try {
-          await ctx.reply("vera～ 莎蘿目前正在系統維護中喔 💤\n暫時無法回覆大家，請等姐姐大人喚醒我再見吧～");
-        } catch (e) {
-          console.error("發送維護訊息失敗:", e);
-        }
-      }
-      // 不呼叫 next()，所以後續的所有邏輯 (如果有) 都不會執行
-    });
-
-    /* 
-    // === 下方為正常運作邏輯，當需要重新開啟機器人時： ===
-    // 1. 刪除上方 🛑 機器人維護模式 的 bot.use 區塊
-    // 2. 解開下方 registerHandlers 的註解
-    
+    // 註冊正常運作邏輯
     registerHandlers(bot, env, execCtx);
-    */
 
     try {
       const handleUpdate = webhookCallback(bot, "cloudflare-mod", {

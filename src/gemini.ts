@@ -10,7 +10,7 @@ export async function analyzeImageWithGemini(env: Env, base64Data: string, mimeT
   const apiKey = env.GEMINI_API_KEY;
   if (!apiKey) {
     console.error("Missing GEMINI_API_KEY");
-    return "系統未配置圖像識別金鑰，莎蘿看不清楚呢...";
+    return "系統未配置圖像識別金鑰，薇拉看不清楚呢...";
   }
 
   // 1. 定義要嘗試的模型列表 (優先使用 2.5，這是 2026 年的主流標準)
@@ -29,7 +29,7 @@ export async function analyzeImageWithGemini(env: Env, base64Data: string, mimeT
           {
             parts: [
               {
-                text: "你是一個專業的圖像描述與角色識別助手。如果圖片中包含知名的動漫、遊戲或現實人物，請務必先嘗試識別並給出確切的角色名稱與作品來源。接著請詳細描述這張圖片的內容，包括人物外貌特徵（髮色、瞳色）、服裝細節（如飾品、手套、鏈條等）、動作、背景以及整體的氛圍。你的描述將提供給一個扮演『莎蘿』的 AI 角色使用。請保持第三人稱客觀描述，字數建議在 150-200 字之間。"
+                text: "你是一個專業的圖像描述與角色識別助手。如果圖片中包含知名的動漫、遊戲或現實人物，請務必先嘗試識別並給出確切的角色名稱與作品來源。接著請詳細描述這張圖片的內容，包括人物外貌特徵（髮色、瞳色）、服裝細節（如飾品、手套、鏈條等）、動作、背景以及整體的氛圍。你的描述將提供給一個扮演『薇拉』的 AI 角色使用。請保持第三人稱客觀描述，字數建議在 150-200 字之間。"
               },
               {
                 inline_data: {
@@ -123,6 +123,6 @@ export async function analyzeImageWithGemini(env: Env, base64Data: string, mimeT
     return "圖片未通過安全審核。";
   }
 
-  return `（莎蘿揉了揉眼睛，似乎看不清這張圖片... 最後錯誤: ${lastError}）`;
+  return `（薇拉揉了揉眼睛，似乎看不清這張圖片... 最後錯誤: ${lastError}）`;
 }
 

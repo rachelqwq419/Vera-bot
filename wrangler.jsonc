@@ -25,7 +25,7 @@
 	"vectorize": [
 		{
 			"binding": "VECTOR_INDEX",
-			"index_name": "vera-memory-index"
+			"index_name": "ciallo-memory-index"
 		}
 	],
 	"ai": {

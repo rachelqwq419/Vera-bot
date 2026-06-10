@@ -20,7 +20,7 @@ export function registerHandlers(bot: Bot, env: Env, execCtx: ExecutionContext):
       // 允許 /cg 圖鑑指令通過
       const msgText = ctx.message?.text || ctx.message?.caption || '';
       if (msgText.startsWith('/cg')) return next();
-      await ctx.reply("vera～ 莎蘿目前只在「紫羅蘭喵喵酒館」營業喔！不接受私下邀約呢～");
+      await ctx.reply("vera～ 薇拉目前只在「紫羅蘭酒館」營業喔！不接受私下邀約呢～");
       return;
     }
     return next();
@@ -70,7 +70,7 @@ bot.use(async (ctx, next) => {
 
   // ── /start ──
   bot.command("start", (ctx) =>
-    ctx.reply("vera～ 歡迎來到紫羅蘭酒館！我是莎蘿，希望能為您帶來愉快的時光～")
+    ctx.reply("vera～ 歡迎來到紫羅蘭酒館！我是薇拉，希望能為您帶來愉快的時光～")
   );
 
 // ── /vera ──
@@ -92,7 +92,7 @@ bot.use(async (ctx, next) => {
     const reporter = ctx.from?.first_name || "一位客人";
     
     // 1. 通知姐姐大人
-    await ctx.reply(`🚨 **緊急狀態已啟動！**\n\n莎蘿似乎發生了行為異常，${reporter} 已啟動緊急呼叫！\n${adminMention} 請儘速查看現場狀況。`, { parse_mode: "Markdown" });
+    await ctx.reply(`🚨 **緊急狀態已啟動！**\n\n薇拉似乎發生了行為異常，${reporter} 已啟動緊急呼叫！\n${adminMention} 請儘速查看現場狀況。`, { parse_mode: "Markdown" });
 
     // 2. 強制重置 AI 的當前心情與部分暫時狀態 (寫入 DB)
     const userId = ctx.from?.id.toString();
@@ -126,13 +126,13 @@ bot.use(async (ctx, next) => {
       `UPDATE users SET temperature = ? WHERE user_id = ?`
     ).bind(value, userId).run();
 
-    await ctx.reply(`🌡️ 已將 AI 溫度調整為 ${value}。較低溫度（0.3~0.7）讓莎蘿更穩定，較高溫度（1.0~2.0）讓莎蘿更有創造力。`);
+    await ctx.reply(`🌡️ 已將 AI 溫度調整為 ${value}。較低溫度（0.3~0.7）讓薇拉更穩定，較高溫度（1.0~2.0）讓薇拉更有創造力。`);
   });
 
-  // ── /group_impression (莎蘿的群組印象) ──
+  // ── /group_impression (薇拉的群組印象) ──
   bot.command(["group_impression", "gi"], async (ctx) => {
     if (ctx.chat?.type === "private") {
-      return ctx.reply("這個指令要在群組裡用，莎蘿才能看大家互動的樣子喔～");
+      return ctx.reply("這個指令要在群組裡用，薇拉才能看大家互動的樣子喔～");
     }
 
     try {
@@ -150,7 +150,7 @@ bot.use(async (ctx, next) => {
       `).bind(chatId).all();
 
       if (!recentMsgs || recentMsgs.length < 5) {
-        return ctx.reply("唔...莎蘿對這個群組的印象還不夠深呢，大家再多聊聊天吧！");
+        return ctx.reply("唔...薇拉對這個群組的印象還不夠深呢，大家再多聊聊天吧！");
       }
 
       const historyText = (recentMsgs as any[]).reverse()
@@ -160,8 +160,8 @@ bot.use(async (ctx, next) => {
             const notes = JSON.parse(m.user_notes || '{}');
             if (notes["稱呼"]) name = notes["稱呼"];
           } catch {}
-          const content = m.content.replace(/^\[.*?\]\s*/, '').replace(/^\(莎蘿對.*?的回覆\)\s*/, '');
-          return `${m.role === 'user' ? name : '莎蘿'}: ${content}`;
+          const content = m.content.replace(/^\[.*?\]\s*/, '').replace(/^\(薇拉對.*?的回覆\)\s*/, '');
+          return `${m.role === 'user' ? name : '薇拉'}: ${content}`;
         })
         .join('\n');
 
@@ -184,7 +184,7 @@ bot.use(async (ctx, next) => {
       const messages = [
         {
           role: "system",
-          content: `你現在是莎蘿(vera)，18歲高三生，在「紫羅蘭酒館」打工。你的性格活潑可愛、樂天開朗、直率俏皮且帶點微毒舌。請使用「書面語（繁體中文）」撰寫報告，不要使用粵語口語。`
+          content: `你現在是薇拉(vera)，18歲高三生，在「紫羅蘭酒館」打工。你的性格活潑可愛、樂天開朗、直率俏皮且帶點微毒舌。請使用「書面語（繁體中文）」撰寫報告，不要使用粵語口語。`
         },
         {
           role: "user",
@@ -197,7 +197,7 @@ ${memberContext}
 ${historyText}
 
 【任務要求】:
-1. 內容需涵蓋：對群組整體氛圍的評價、對幾位活躍成員的有趣觀察、以及莎蘿對這個群組未來的期待。
+1. 內容需涵蓋：對群組整體氛圍的評價、對幾位活躍成員的有趣觀察、以及薇拉對這個群組未來的期待。
 2. 保持你的角色性格，講話要俏皮、可愛，偶爾可以有一點點調皮的吐槽。
 3. 總結字數控制在 150-300 字左右。
 4. 最後請以「vera～」作為結尾。
@@ -214,13 +214,13 @@ ${historyText}
       
       if (data?.choices?.[0]?.message?.content) {
         let aiReply = data.choices[0].message.content.trim();
-        await ctx.reply(`🌸 **莎蘿的群組觀察報告：${roomName}** 🌸\n\n${aiReply}`, { parse_mode: "Markdown" });
+        await ctx.reply(`🌸 **薇拉的群組觀察報告：${roomName}** 🌸\n\n${aiReply}`, { parse_mode: "Markdown" });
       } else {
-        await ctx.reply("（莎蘿想了很久，最後什麼都沒寫出來...）");
+        await ctx.reply("（薇拉想了很久，最後什麼都沒寫出來...）");
       }
     } catch (error) {
       console.error("Group Impression Error:", error);
-      await ctx.reply("抱歉，莎蘿現在腦袋有點亂，寫不出總結呢... >_<");
+      await ctx.reply("抱歉，薇拉現在腦袋有點亂，寫不出總結呢... >_<");
     }
   });
 
@@ -265,7 +265,7 @@ ${historyText}
        ON CONFLICT(user_id) DO UPDATE SET affection = 1`
     ).bind(stateId).run();
 
-    await ctx.reply("⏸️ **莎蘿已進入觀察模式。**\n\n我會繼續聽大家說話，但暫時不會回覆喔～直到管理員或老闆輸入 /adminresume 為止。");
+    await ctx.reply("⏸️ **薇拉已進入觀察模式。**\n\n我會繼續聽大家說話，但暫時不會回覆喔～直到管理員或老闆輸入 /adminresume 為止。");
   });
 
   // ── /adminresume (恢復運行並重置狀態) ──
@@ -286,7 +286,7 @@ ${historyText}
        ON CONFLICT(user_id) DO UPDATE SET affection = 1`
     ).bind(`FLAG_RESET_${chatId}`).run();
 
-    await ctx.reply("▶️ **莎蘿已經清醒過來了！**\n\n剛剛好像做了個奇怪的夢呢⋯⋯現在我恢復正常囉！大家想聊什麼？♡");
+    await ctx.reply("▶️ **薇拉已經清醒過來了！**\n\n剛剛好像做了個奇怪的夢呢⋯⋯現在我恢復正常囉！大家想聊什麼？♡");
   });
 
   // ── /setname (管理/老闆手動更名) ──
@@ -321,7 +321,7 @@ ${historyText}
         `UPDATE users SET user_notes = ? WHERE user_id = ?`
       ).bind(JSON.stringify(notes), targetUserId).run();
 
-      await ctx.reply(`✅ 成功！現在莎蘿會稱呼 ${targetRealName} 為「${newName}」囉！`);
+      await ctx.reply(`✅ 成功！現在薇拉會稱呼 ${targetRealName} 為「${newName}」囉！`);
     } catch (e) {
       console.error("Setname error:", e);
       await ctx.reply("❌ 更改失敗，請稍後再試。");
@@ -450,10 +450,10 @@ ${historyText}
 
   // ── /cg (私訊圖鑑系統) ──
   bot.command("cg", async (ctx) => {
-    if (ctx.chat?.type !== "private") {
-      return ctx.reply("請私訊莎蘿使用 /cg 來查看你的專屬圖鑑喔～");
+    if (ctx.chat.type !== "private") {
+      return ctx.reply("請私訊薇拉使用 /cg 來查看你的專屬圖鑑喔～");
     }
-
+    try {
     const userId = ctx.from?.id.toString();
     if (!userId) return;
 
@@ -502,9 +502,13 @@ ${historyText}
       keyboard.push(row);
     }
 
-    await ctx.reply("📸 【莎蘿的私密圖鑑】\n\n請選擇要查看的分類：", {
+    await ctx.reply("📸 【薇拉的私密圖鑑】\n\n請選擇要查看的分類：", {
       reply_markup: { inline_keyboard: keyboard },
     });
+    } catch (error) {
+      console.error("CG Panel Error:", error);
+      await ctx.reply("讀取圖鑑時發生錯誤。");
+    }
   });
 
   // ── callback_query：CG 圖鑑 / 管理按鈕處理 ──
@@ -669,14 +673,14 @@ bot.command("addkey", async (ctx) => {
     if (ctx.chat.type !== "private") {
       const botUsername = ctx.me.username;
       
-      // 判斷條件 1：是否回覆莎蘿的訊息？
+      // 判斷條件 1：是否回覆薇拉的訊息？
       const isReplyToBot = ctx.message.reply_to_message?.from?.id === ctx.me.id;
       
       // 判斷條件 2：文字中是否包含 @帳號？
       const isAtMentioned = botUsername && userMessage.includes(`@${botUsername}`);
       
       // 判斷條件 3：是否提到名字（繁簡皆可）？
-      const isNameCalled = userMessage.includes("莎蘿") || userMessage.includes("莎萝") || userMessage.includes("vera");
+      const isNameCalled = userMessage.includes("薇拉") || userMessage.includes("vera");
 
       // 如果不是回覆她，也沒有 @她，也沒有直接叫她的名字，就乖乖閉嘴不處理
       if (!isReplyToBot && !isAtMentioned && !isNameCalled) {
@@ -714,9 +718,9 @@ bot.command("addkey", async (ctx) => {
 
         if (contentBrief.length > 50) contentBrief = contentBrief.substring(0, 50) + "...";
 
-        // 如果回覆的是莎蘿自己 (判斷 ID 或 判斷是否為 bot)
+        // 如果回覆的是薇拉自己 (判斷 ID 或 判斷是否為 bot)
         if (replyMsg.from?.id === ctx.me.id || replyMsg.from?.is_bot) {
-            userMessage = `[回覆 莎蘿：「${contentBrief}」] ` + userMessage;
+            userMessage = `[回覆 薇拉：「${contentBrief}」] ` + userMessage;
         } else {
             // 將被回覆的內容注入
             const replyTag = repliedLogin ? `[回覆 ${repliedName}(${repliedLogin})：「${contentBrief}」] ` : `[回覆 ${repliedName}：「${contentBrief}」] `;
@@ -814,7 +818,7 @@ bot.command("addkey", async (ctx) => {
       }
     } catch (error) {
       console.error("DeepSeek API 錯誤:", error);
-      await ctx.reply("（莎蘿似乎在想事情時被打斷了，請再對她說一次吧。）").catch(() => {});
+      await ctx.reply("（薇拉似乎在想事情時被打斷了，請再對她說一次吧。）").catch(() => {});
     }
   });
 
@@ -824,7 +828,7 @@ bot.command("addkey", async (ctx) => {
     
     // 如果錯誤訊息包含 bot was kicked，就安靜處理掉
     if (e.description && e.description.includes("bot was kicked")) {
-      console.log(`[安全攔截] 莎蘿已被踢出群組或沒有權限發言，已忽略此錯誤。`);
+      console.log(`[安全攔截] 薇拉已被踢出群組或沒有權限發言，已忽略此錯誤。`);
     } else {
       // 其他嚴重錯誤才印出來
       console.error("Grammy 運行時錯誤:", e);
