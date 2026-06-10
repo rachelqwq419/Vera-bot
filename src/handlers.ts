@@ -39,7 +39,8 @@ bot.use(async (ctx, next) => {
       text.startsWith("/cg") || 
       text.startsWith("/deletecg") || 
       text.startsWith("/group_impression") || 
-      text.startsWith("/gi")
+      text.startsWith("/gi") ||
+      text.startsWith("/info")
     ) {
       return next();
     }
