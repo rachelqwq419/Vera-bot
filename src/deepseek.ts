@@ -70,11 +70,13 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
   // ── 2. 建立 Context ──
   const formattedUserMessage = `[${preferredName}${userLogin ? `(${userLogin})` : ''}|數據等級${userRecord.affection}] ${userMessage}`;
    
+  // 🆕 修改：加入 thread_id 過濾，讓子頻道的對話歷史獨立
+  const threadFilter = threadId ? `AND m.message_thread_id = ${threadId}` : `AND (m.message_thread_id IS NULL OR m.message_thread_id = 0)`;
   const { results: recentMsgs } = await env.vera_db.prepare(`
-    SELECT m.role, m.content, u.first_name, u.username, u.user_notes, u.affection
+    SELECT m.role, m.content, u.first_name, u.username, u.user_notes, u.affection, m.message_thread_id
     FROM messages m
     LEFT JOIN users u ON m.user_id = u.user_id
-    WHERE m.chat_id = ?
+    WHERE m.chat_id = ? ${threadFilter}
     ORDER BY m.id DESC LIMIT ${HISTORY_LIMIT}
   `).bind(chatId).all();
 
@@ -101,20 +103,25 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
   const todayDate = hkTime.toISOString().split('T')[0];
 
   let timeScene = `[Current Time: ${formattedTime} HKT]\n`;
-  if (currentHour >= 6 && currentHour < 24) {
-    timeScene += "現在是工作時間，你在「紫羅蘭酒館」擔任首席女僕，穿著精緻的黑白女僕裝。";
+  if (currentHour >= 6 && currentHour < 17) {
+    timeScene += "現在是白天，你正在學校上課或在校園內活動，穿著整齊的高中制服。";
   } else {
-    timeScene += "現在是深夜休息時間，你在私人房間，穿著簡約睡袍。";
+    timeScene += "現在是傍晚或深夜，你已經回到家中，穿著舒適的休閒服或睡衣。";
   }
 
-  const currentScene = currentHour >= 6 && currentHour < 24 ? "Tavern Duties" : "Private Time";
+  const currentScene = currentHour >= 6 && currentHour < 17 ? "Campus Life" : "Home Time";
   const relatedMemories = await retrieveVectorMemories(env, userId, userMessage);
   
+  // 🆕 修改：取得該 Thread 的專屬記憶摘要（如果有）
+  const threadMemory = threadId ? `這是名為「${roomName}」的子頻道空間，你應該記住這個房間特有的氛圍。` : "這是主聊天大廳。";
+
   let dynamicSystemPrompt = SYSTEM_PROMPT_TEMPLATE
     .replace(/{{user_name}}/g, userName)
     .replace(/{{preferred_name_info}}/g, preferredNameInfo)
     .replace(/{{affection}}/g, userRecord.affection.toString())
-    .replace(/{{memory}}/g, `[Experimental Data]: ${memory}`)
+    .replace(/{{memory}}/g, memory)
+    .replace(/{{thread_memory}}/g, threadMemory)
+    .replace(/{{thread_id}}/g, threadId?.toString() || "Main")
     .replace(/{{time_scene}}/g, timeScene)
     .replace(/{{user_notes}}/g, userNotesText)
     .replace(/{{mood}}/g, `${moodInfo.emoji} ${moodInfo.label}`)
@@ -191,8 +198,8 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
           currentMessages.push({ role: "tool", tool_call_id: toolCall.id, content: VERA_GUIDE });
         } else if (toolCall.function.name === "generate_selfie") {
           const args = JSON.parse(toolCall.function.arguments);
-          const characterBase = "1girl, solo, anime girl, beautiful eyes, deep red eyes, long black hair, straight hair, (maid headdress), elegant, aloof, sharp facial features, realistic skin, perfect body";
-          const outfitPrompt = currentScene === "Tavern Duties" ? "elegant long black and white maid dress, frills, highly detailed maid uniform" : "simple elegant nightgown, casual indoor wear";
+          const characterBase = "1girl, solo, anime girl, beautiful eyes, deep red eyes, long black hair, straight hair, elegant, sharp facial features, realistic skin, perfect body";
+          const outfitPrompt = currentScene === "Campus Life" ? "japanese school uniform, seifuku, highly detailed" : "casual indoor wear, cute home outfit, simple elegant";
           const finalPositive = `masterpiece, best quality, ${characterBase}, ${outfitPrompt}, ${args.scene_description}`;
           
           execCtx.waitUntil((async () => {
@@ -243,7 +250,8 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
   await env.vera_db.batch([
     env.vera_db.prepare(`UPDATE users SET check_in_days = ?, last_greeting_date = ?, unsummarized_count = unsummarized_count + 1, mood = ?, last_message_time = ?, last_scene = ? WHERE user_id = ?`)
       .bind(userRecord.check_in_days, userRecord.last_greeting_date, newMood, now.toISOString(), currentScene, userId),
-    env.vera_db.prepare(`INSERT INTO messages (user_id, chat_id, role, content) VALUES (?, ?, 'user', ?), (?, ?, 'assistant', ?)`).bind(userId, chatId, formattedUserMessage, userId, chatId, taggedReply)
+    env.vera_db.prepare(`INSERT INTO messages (user_id, chat_id, role, content, message_thread_id) VALUES (?, ?, 'user', ?, ?), (?, ?, 'assistant', ?, ?)`)
+      .bind(userId, chatId, formattedUserMessage, threadId || null, userId, chatId, taggedReply, threadId || null)
   ]);
 
   if (userRecord.unsummarized_count >= 10) execCtx.waitUntil(summarizeMemory(env, userId, userName, memory, chatId));

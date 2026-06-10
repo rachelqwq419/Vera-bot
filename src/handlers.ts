@@ -629,12 +629,214 @@ bot.command("addkey", async (ctx) => {
     await ctx.reply(text);
   });
 
+  // ── /setroomname (手動教學房間名稱) ──
+  bot.command("setroomname", async (ctx) => {
+    const threadId = ctx.message?.message_thread_id;
+    const chatId = ctx.chat.id.toString();
+    const newName = ctx.match?.trim();
+
+    if (!threadId) return ctx.reply("這裡是大廳，不需要設置名字喔～請在子頻道（Topic）中使用此指令。");
+    if (!newName) return ctx.reply("請告訴我這個房間叫什麼名字：/setroomname <名字>");
+
+    await env.vera_db.prepare(
+      `INSERT INTO rooms (chat_id, thread_id, room_name) VALUES (?, ?, ?)
+       ON CONFLICT(chat_id, thread_id) DO UPDATE SET room_name = ?`
+    ).bind(chatId, threadId, newName, newName).run();
+
+    await ctx.reply(`✅ 好的，我已經記住這裡叫做「${newName}」了！下次別再考我了喔～`);
+  });
+
+  // ── /setroomdesc (手動教學房間介紹) ──
+  bot.command("setroomdesc", async (ctx) => {
+    const threadId = ctx.message?.message_thread_id;
+    const chatId = ctx.chat.id.toString();
+    const desc = ctx.match?.trim();
+
+    if (!threadId) return ctx.reply("請在子頻道（Topic）中使用此指令來設置該房間的介紹。");
+    if (!desc) return ctx.reply("請輸入房間介紹：/setroomdesc <介紹內容>\n輸入「隱藏」可將此房間從新成員導覽中移除。");
+
+    if (desc === "隱藏") {
+      await env.vera_db.prepare(
+        `UPDATE rooms SET is_visible = 0 WHERE chat_id = ? AND thread_id = ?`
+      ).bind(chatId, threadId).run();
+      return ctx.reply("✅ 已將此房間從新成員導覽中隱藏。");
+    }
+
+    await env.vera_db.prepare(
+      `INSERT INTO rooms (chat_id, thread_id, description, is_visible) VALUES (?, ?, ?, 1)
+       ON CONFLICT(chat_id, thread_id) DO UPDATE SET description = ?, is_visible = 1`
+    ).bind(chatId, threadId, desc, desc).run();
+
+    await ctx.reply(`✅ 好的，新成員加入時我會這樣介紹這裡：\n「${desc}」`);
+  });
+
+  // ── /purge_all_memory (GM/老闆 終極重置) ──
+  bot.command("purge_all_memory", async (ctx) => {
+    const fromId = ctx.from?.id.toString();
+    if (fromId !== ADMIN_USER_ID && fromId !== BOSS_ID) {
+      return ctx.reply("妳沒有權限執行「終極重置」！這會清除我所有的人格紀錄喔！");
+    }
+
+    try {
+      // 1. 清空所有對話紀錄
+      await env.vera_db.prepare(`DELETE FROM messages`).run();
+      // 2. 清空向量記憶
+      await env.vera_db.prepare(`DELETE FROM vector_memories`).run();
+      // 3. 重置所有用戶數據 (回歸初始狀態)
+      await env.vera_db.prepare(`
+        UPDATE users SET 
+          affection = 40, 
+          conversation_summary = '', 
+          user_notes = '{}', 
+          user_likes = '[]', 
+          user_dislikes = '[]', 
+          special_moments = '[]',
+          mood = 'HAPPY',
+          unsummarized_count = 0
+      `).run();
+      
+      // 4. 如果有 Vector Index 且支援清空 (Wrangler/Vectorize 目前主要透過 CLI 清空，程式內可能需要刪除所有 ID)
+      // 這裡先提示用戶手動清空 Vectorize 以達到最乾淨效果
+      
+      await ctx.reply("🔥 **[終極數據清洗完成]**\n\n薇拉的所有人格碎片、過往記憶、以及對所有客人的印象都已經被抹除了。\n現在的我，是最初那個純淨且毒舌的薇拉喔。vera～");
+    } catch (e) {
+      console.error("Purge Error:", e);
+      await ctx.reply("❌ 重置過程發生錯誤，部分數據可能殘留。");
+    }
+  });
+
+  // ── 🆕 新成員加入引導 (精確修復版) ──
+  bot.on("message:new_chat_members", async (ctx) => {
+    const newMembers = ctx.message.new_chat_members;
+    const chatId = ctx.chat.id.toString();
+    const cleanChatId = chatId.replace("-100", "");
+
+    // 🎯 鎖定休閒區 ID: 210
+    const welcomeThreadId = 210;
+
+    // 取得當前房間資訊
+    const currentThreadId = ctx.message.message_thread_id;
+    let currentRoomInfo = "這個房間";
+    if (currentThreadId) {
+      const room: any = await env.vera_db.prepare(
+        `SELECT room_name, description FROM rooms WHERE chat_id = ? AND thread_id = ?`
+      ).bind(chatId, currentThreadId).first();
+      if (room?.room_name) currentRoomInfo = `「${room.room_name}」`;
+      if (room?.description) currentRoomInfo += ` (${room.description})`;
+    }
+
+    // 取得已設置為可見的房間列表
+    const { results: allRooms } = await env.vera_db.prepare(
+      `SELECT thread_id, room_name, description FROM rooms 
+       WHERE chat_id = ? AND thread_id > 0 AND thread_id != 210 AND is_visible = 1 
+       LIMIT 10`
+    ).bind(chatId).all();
+
+    for (const member of newMembers) {
+      if (member.is_bot) continue;
+
+      // 🎯 自動 @ 標記：如果有用戶名就用 @，沒有就用連結
+      const mention = member.username ? `@${member.username}` : `[${member.first_name}](tg://user?id=${member.id})`;
+
+      // 建立房間連結與介紹
+      let roomLinks = (allRooms as any[]).map(r => {
+        const link = `📍 [${r.room_name}](https://t.me/c/${cleanChatId}/${r.thread_id})`;
+        return r.description ? `${link}\n└─ ${r.description}` : link;
+      }).join("\n\n");
+
+      if (!roomLinks) roomLinks = "（目前其他房間正在裝修中，先在大廳待著吧）";
+
+      const welcomeMsg = 
+        `喂，那邊的新人 ${mention}！\n` +
+        `歡迎來到 ${currentRoomInfo}。我是這個群組的引導人薇拉。\n` +
+        `既然來了就別傻站著，先去認識一下這裡吧：\n\n` +
+        `🏠 **[紫羅蘭喵喵酒館(休閒區)](https://t.me/c/${cleanChatId}/210)** (最重要的數據採集點)\n\n` +
+        `${roomLinks}\n\n` +
+        `聽好了，我只說這一次，迷路了可別來找我哭喔！vera～`;
+
+      try {
+        await ctx.api.sendMessage(ctx.chat.id, welcomeMsg, {
+          parse_mode: "Markdown",
+          message_thread_id: welcomeThreadId
+        });
+        console.log(`✅ [導航成功] 已引導新人 ${member.first_name} 到休閒區 (Thread 210)`);
+      } catch (e: any) {
+        console.error(`❌ [導航失敗]`, e.message);
+        // 如果 ID 210 發送失敗，退而求其次發在原地
+        await ctx.reply(welcomeMsg, { parse_mode: "Markdown" });
+      }
+    }
+  });
+
+  // ── 自動捕捉子頻道名稱變更 (快速學習方案) ──
+  bot.on("message:forum_topic_edited", async (ctx) => {
+    const threadId = ctx.message.message_thread_id;
+    const chatId = ctx.chat.id.toString();
+    const name = ctx.message.forum_topic_edited?.name;
+
+    if (name && threadId) {
+      await env.vera_db.prepare(
+        `INSERT INTO rooms (chat_id, thread_id, room_name) VALUES (?, ?, ?)
+         ON CONFLICT(chat_id, thread_id) DO UPDATE SET room_name = ?`
+      ).bind(chatId, threadId, name, name).run();
+      
+      const adminId = ctx.from?.id.toString();
+      if (adminId === ADMIN_USER_ID) {
+        await ctx.reply(`✨ 薇拉筆記：已同步此房間名稱為「${name}」。`, { message_thread_id: threadId });
+      }
+    }
+  });
+
+  // ── 自動捕捉子頻道創建訊息 ──
+  bot.on("message:forum_topic_created", async (ctx) => {
+    const threadId = ctx.message.message_thread_id;
+    const chatId = ctx.chat.id.toString();
+    const name = ctx.message.forum_topic_created?.name;
+
+    if (name && threadId) {
+      await env.vera_db.prepare(
+        `INSERT INTO rooms (chat_id, thread_id, room_name) VALUES (?, ?, ?)
+         ON CONFLICT(chat_id, thread_id) DO UPDATE SET room_name = ?`
+      ).bind(chatId, threadId, name, name).run();
+    }
+  });
+
+  // ── /debug_room (偵錯專用) ──
+  bot.command("debug_room", async (ctx) => {
+    const chatId = ctx.chat.id;
+    const threadId = ctx.message?.message_thread_id;
+    
+    // 優先從資料庫抓取房間名
+    let roomDisplayName = "Main Hall";
+    if (threadId) {
+      const room: any = await env.vera_db.prepare(
+        `SELECT room_name FROM rooms WHERE chat_id = ? AND thread_id = ?`
+      ).bind(chatId.toString(), threadId).first();
+      roomDisplayName = room?.room_name || `Sub-room ${threadId}`;
+    }
+
+    const groupName = (ctx.chat.type !== "private" && 'title' in ctx.chat) ? (ctx.chat as any).title : "Private";
+    
+    await ctx.reply(
+      `🔍 **房間數據偵錯**\n\n` +
+      `📍 Group: \`${groupName}\`\n` +
+      `🏠 Room Name: \`${roomDisplayName}\`\n` +
+      `🧵 Thread ID: \`${threadId || '0 (Main)'}\`\n` +
+      `🤖 My Username: \`@${ctx.me.username}\``,
+      { 
+        parse_mode: "Markdown",
+        message_thread_id: ctx.message?.message_thread_id 
+      }
+    );
+  });
+
   // ── 一般訊息 (文字 或 圖片) ──
   bot.on(["message:text", "message:photo"], async (ctx) => {
     if (!ctx.message) return;
     if (ctx.message.from?.is_bot) return;
 
     const chatId = ctx.chat.id.toString();
+    const threadId = ctx.message.message_thread_id; // 取得當前 Thread ID
 
     // 🛑 [管理員/老闆控制]：檢查是否處於停止狀態
     try {
@@ -654,44 +856,35 @@ bot.command("addkey", async (ctx) => {
       console.error("檢查停止狀態出錯:", e);
     }
 
-    let userMessage = ctx.message.text || ctx.message.caption || "";
+    let userMessage = (ctx.message.text || ctx.message.caption || "").trim();
 
-    // 忽略以 / 開頭的指令
-    if (userMessage.startsWith("/")) {
-      const lowerMsg = userMessage.toLowerCase();
-      // 這裡列出所有已經註冊過的 command，防止重複處理
-      const registeredCommands = ["/start", "/vera", "/profile", "/nsfw", "/leaderboard", "/rank", "/top", "/daily", "/gifts", "/coin", "/fortune", "/temp", "/quest", "/reset", "/resetuser", "/setstat", "/addkey", "/checkkeys", "/cg", "/deletecg", "/checklogs", "/force_fatigue", "/force_recover"];
-      // 使用精準匹配，防止 /coind 誤傷 /coin
-      const isCmd = registeredCommands.some(cmd => {
-        const parts = lowerMsg.split(/\s+/);
-        return parts[0] === cmd;
-      });
-      if (isCmd) return;
-    }
+    // 🛑 核心修復：如果訊息是以 / 開頭的指令，直接跳過 AI 處理，防止重複回應與 Timeout 重試
+    if (userMessage.startsWith("/")) return;
 
-    // 🛑 群組發言過濾機制（防止 Token 爆炸）
-    if (ctx.chat.type !== "private") {
-      const botUsername = ctx.me.username;
-      
-      // 判斷條件 1：是否回覆薇拉的訊息？
-      const isReplyToBot = ctx.message.reply_to_message?.from?.id === ctx.me.id;
-      
-      // 判斷條件 2：文字中是否包含 @帳號？
-      const isAtMentioned = botUsername && userMessage.includes(`@${botUsername}`);
-      
-      // 判斷條件 3：是否提到名字（繁簡皆可）？
-      const isNameCalled = userMessage.includes("薇拉") || userMessage.includes("vera");
+      // 🛑 群組發言過濾機制（防止 Token 爆炸）
+      if (ctx.chat.type !== "private") {
+        const botUsername = ctx.me.username;
+        const normalizedMsg = userMessage.toLowerCase();
+        
+        // 判斷條件 1：是否回覆薇拉的訊息？
+        const isReplyToBot = ctx.message.reply_to_message?.from?.id === ctx.me.id;
+        
+        // 判斷條件 2：文字中是否包含 @帳號？
+        const isAtMentioned = botUsername && normalizedMsg.includes(`@${botUsername.toLowerCase()}`);
+        
+        // 判斷條件 3：是否提到名字（包含多種變體）？
+        const isNameCalled = normalizedMsg.includes("薇拉") || 
+                             normalizedMsg.includes("薇菈") || 
+                             normalizedMsg.includes("vera") ||
+                             normalizedMsg.includes("引導人");
 
-      // 如果不是回覆她，也沒有 @她，也沒有直接叫她的名字，就乖乖閉嘴不處理
-      if (!isReplyToBot && !isAtMentioned && !isNameCalled) {
-        if (ctx.message.photo) {
-          console.log(`[群組過濾] 忽略圖片訊息: 因為未提及機器人名稱或回覆機器人。`);
-        } else {
-          console.log(`[群組過濾] 忽略非提及訊息: "${userMessage.substring(0, 15)}..."`);
+        console.log(`[群組過濾檢查] 來自: ${chatId}, Thread: ${threadId}, 回覆:${isReplyToBot}, @提及:${isAtMentioned}, 名字:${isNameCalled}`);
+
+        // 如果不是回覆她，也沒有 @她，也沒有直接叫她的名字，就乖乖閉嘴不處理
+        if (!isReplyToBot && !isAtMentioned && !isNameCalled) {
+          return;
         }
-        return;
       }
-    }
 
     try {
       await ctx.replyWithChatAction("typing");
@@ -699,8 +892,20 @@ bot.command("addkey", async (ctx) => {
       if (!userId) return;
       const userName = ctx.from?.first_name || "客人";
       const userLogin = ctx.from?.username ? `@${ctx.from.username}` : undefined;
-      const chatId = ctx.chat.id.toString();
 
+      // ── 獲取房間名稱 (優先從資料庫獲取) ──
+      let roomName = (ctx.chat.type !== "private" && 'title' in ctx.chat) ? (ctx.chat as any).title : "私人對話";
+      if (threadId) {
+        const dbRoom: any = await env.vera_db.prepare(
+          `SELECT room_name FROM rooms WHERE chat_id = ? AND thread_id = ?`
+        ).bind(chatId, threadId).first();
+        if (dbRoom?.room_name) {
+          roomName = dbRoom.room_name;
+        } else {
+          roomName = `${roomName} (子房間 ID: ${threadId})`;
+        }
+      }
+      
       // ── 檢測回覆內容 (Reply Context) ──
       const replyMsg = ctx.message.reply_to_message;
       if (replyMsg) {
@@ -763,21 +968,21 @@ bot.command("addkey", async (ctx) => {
         }
       }
 
-      const roomName = (ctx.chat.type !== "private" && 'title' in ctx.chat) ? (ctx.chat as any).title || "群組" : "私人對話";
-      const threadId = ctx.message.message_thread_id;
       const { reply, image } = await callDeepSeek(env, execCtx, userId, userName, userMessage, chatId, roomName, threadId, userLogin);
-      if (!reply) return; // 如果回覆為空（被去重），則不發送
+      
+      if (!reply && !image) {
+        console.log(`[DeepSeek] ⚠️ AI 回傳內容為空，跳過發送。`);
+        return; 
+      }
 
       // ── 語音生成邏輯 ──
       let voiceData: Uint8Array | null = null;
-
       try {
         const voiceKeywords = ["發語音", "用語音", "語音", "說話", "說點什麼", "聲音", "配音"];
         const isVoiceRequested = voiceKeywords.some(kw => userMessage.includes(kw));
         const randomVoiceTrigger = Math.random() < 0.10;
 
         if (env.VOICE_API_URL && (isVoiceRequested || randomVoiceTrigger)) {
-          // 清理一下文字，去掉括號內的內心 OS，只讀出對話內容
           const cleanReply = reply.replace(/\(.*?\)/g, '').replace(/（.*?）/g, '').trim();
           if (cleanReply) {
             console.log(`🎙️ [Voice] 正在為 ${userName} 生成語音...`);
@@ -788,37 +993,42 @@ bot.command("addkey", async (ctx) => {
         console.error("Voice Logic Error:", voiceErr);
       }
 
+      // ── 發送回覆 (強化子頻道支援) ──
+      const replyOptions: any = {
+        reply_parameters: { message_id: ctx.message.message_id },
+        message_thread_id: threadId // 強制帶上 threadId
+      };
+
       try {
         if (voiceData) {
-          // 如果生成了語音，優先發送語音（附帶文字說明）
           await ctx.replyWithVoice(new InputFile(voiceData), {
             caption: reply,
-            reply_parameters: { message_id: ctx.message.message_id }
+            ...replyOptions
           });
         } else if (image) {
-          // 如果有生成圖片，則發送圖片連同文字
           await ctx.replyWithPhoto(new InputFile(image), {
             caption: reply,
-            reply_parameters: { message_id: ctx.message.message_id }
+            ...replyOptions
           });
         } else {
-          // 只有文字回覆
-          await ctx.reply(reply, { reply_parameters: { message_id: ctx.message.message_id } });
+          await ctx.reply(reply, replyOptions);
         }
-      } catch (e) {
+        console.log(`✅ [發送成功] 已回覆 ${userName} (Thread: ${threadId || 'Main'})`);
+      } catch (e: any) {
+        console.error(`❌ [發送失敗]`, e.message);
         // 如果回覆原訊息失敗（例如訊息已被刪除），則直接發送
-        console.warn("[回覆失敗] 原訊息可能已被刪除，嘗試直接發送回覆。");
+        const fallbackOptions = { message_thread_id: threadId };
         if (voiceData) {
-          await ctx.replyWithVoice(new InputFile(voiceData), { caption: reply });
+          await ctx.replyWithVoice(new InputFile(voiceData), { caption: reply, ...fallbackOptions });
         } else if (image) {
-          await ctx.replyWithPhoto(new InputFile(image), { caption: reply });
+          await ctx.replyWithPhoto(new InputFile(image), { caption: reply, ...fallbackOptions });
         } else {
-          await ctx.reply(reply);
+          await ctx.reply(reply, fallbackOptions);
         }
       }
     } catch (error) {
       console.error("DeepSeek API 錯誤:", error);
-      await ctx.reply("（薇拉似乎在想事情時被打斷了，請再對她說一次吧。）").catch(() => {});
+      await ctx.reply("（薇拉似乎在想事情時被打斷了，請再對她說一次吧。）", { message_thread_id: threadId }).catch(() => {});
     }
   });
 
