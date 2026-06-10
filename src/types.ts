@@ -14,7 +14,6 @@ export interface UserRecord {
   user_id: string;
   first_name: string;
   username: string | null;
-  affection: number;
   conversation_summary: string;
   check_in_days: number;
   last_greeting_date: string | null;

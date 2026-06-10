@@ -168,7 +168,7 @@ bot.use(async (ctx, next) => {
 
       // 2. 抓取本群最活躍的 10 位用戶的摘要
       const { results: userSummaries } = await env.vera_db.prepare(`
-        SELECT u.first_name, u.conversation_summary, u.affection, COUNT(m.id) as msg_count
+        SELECT u.first_name, u.conversation_summary, COUNT(m.id) as msg_count
         FROM users u
         JOIN messages m ON u.user_id = m.user_id
         WHERE m.chat_id = ? AND u.first_name IS NOT NULL
@@ -178,7 +178,7 @@ bot.use(async (ctx, next) => {
 
       let memberContext = "【活躍成員記憶碎片】:\n";
       for (const u of (userSummaries as any[])) {
-        memberContext += `- ${u.first_name} (好感 ${u.affection}): ${u.conversation_summary || '初次見面'}\n`;
+        memberContext += `- ${u.first_name}: ${u.conversation_summary || '初次見面'}\n`;
       }
 
       // 3. 呼叫 AI 生成總結
@@ -707,14 +707,14 @@ bot.command("addkey", async (ctx) => {
       // 3. 重置所有用戶數據 (回歸初始狀態)
       await env.vera_db.prepare(`
         UPDATE users SET 
-          affection = 40, 
           conversation_summary = '', 
           user_notes = '{}', 
           user_likes = '[]', 
           user_dislikes = '[]', 
           special_moments = '[]',
           mood = 'HAPPY',
-          unsummarized_count = 0
+          unsummarized_count = 0,
+          titles = '[]'
       `).run();
       
       // 4. 如果有 Vector Index 且支援清空 (Wrangler/Vectorize 目前主要透過 CLI 清空，程式內可能需要刪除所有 ID)
@@ -734,7 +734,7 @@ bot.command("addkey", async (ctx) => {
 
     try {
       const user = await env.vera_db.prepare(
-        `SELECT affection, titles, user_notes FROM users WHERE user_id = ?`
+        `SELECT titles, user_notes, conversation_summary FROM users WHERE user_id = ?`
       ).bind(userId).first() as any;
 
       if (!user) {
@@ -753,8 +753,8 @@ bot.command("addkey", async (ctx) => {
         `📊 **[樣本觀測面板]**\n\n` +
         `👤 **目標**: ${ctx.from?.first_name}\n` +
         `📝 **自訂稱呼**: ${customName}\n` +
-        `❤️ **觀測興趣值 (Affection)**: ${user.affection}\n` +
-        `🏷️ **行為特徵標籤**: ${titlesDisplay}\n\n` +
+        `🏷️ **行為特徵標籤**: ${titlesDisplay}\n` +
+        `📂 **觀測摘要**: ${user.conversation_summary || '初次掃描，暫無深度數據。'}\n\n` +
         `*「妳的數據變化還算勉強有點意思，繼續保持吧。」*`;
 
       await ctx.reply(text, { parse_mode: "Markdown" });

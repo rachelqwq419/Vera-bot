@@ -51,14 +51,15 @@ ${historyText}
 
 [Task]:
 1. Update the long-term summary. Merge new critical findings into the profile.
-2. Generate a unique "Past Interaction Snapshot" for this segment.
-3. Observe the guest's behavior and optionally generate a short, creative "Tag" or "Title" (e.g., "深夜話癆", "貓咪狂熱者", "數據干擾源") that summarizes their recent conversational habit.
+2. Analyze the quality of the relationship between Vera and the guest. Determine if Vera should respect, tolerate, or be annoyed by them based on their intelligence, helpfulness, and overall behavior in the recent data. This evaluation must be integrated into the "global_summary".
+3. Generate a unique "Past Interaction Snapshot" for this segment.
+4. Observe the guest's behavior and optionally generate a short, creative "Tag" or "Title" (e.g., "深夜話癆", "貓咪狂熱者", "數據干擾源") that summarizes their recent conversational habit.
 
 [Output Requirements]:
 - Language: ENGLISH (except for the Tag, which must be TRADITIONAL CHINESE).
 - Format: JSON.
 {
-  "global_summary": "Updated summary.",
+  "global_summary": "Updated summary including relationship evaluation.",
   "segment_snapshot": "Brief description of this interaction.",
   "likes": ["Identified interests"],
   "dislikes": ["Identified aversions"],

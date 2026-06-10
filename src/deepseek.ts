@@ -30,8 +30,8 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
 
   // ── 1. 確保 user 存在 ──
   await env.vera_db.prepare(
-    `INSERT INTO users (user_id, first_name, username, affection, unsummarized_count, join_order) 
-     VALUES (?, ?, ?, 40, 0, (SELECT IFNULL(MAX(join_order), 0) + 1 FROM users))
+    `INSERT INTO users (user_id, first_name, username, unsummarized_count, join_order) 
+     VALUES (?, ?, ?, 0, (SELECT IFNULL(MAX(join_order), 0) + 1 FROM users))
      ON CONFLICT(user_id) DO UPDATE SET 
        first_name = ?,
        username = excluded.username`
@@ -42,14 +42,6 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
   ).bind(userId).first() as UserRecord | null;
 
   if (!userRecord) throw new Error(`User ${userId} not found after upsert`);
-
-  // 👑 至高無上的創作者
-  if (userId === ADMIN_USER_ID) {
-    if (userRecord.affection !== 100) {
-      await env.vera_db.prepare(`UPDATE users SET affection = 100 WHERE user_id = ?`).bind(userId).run();
-      userRecord.affection = 100;
-    }
-  }
 
   // 🧠 數據處理
   let userNotes: Record<string, string> = {};
@@ -72,12 +64,12 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
   const moodInfo = MOODS[currentMood] || MOODS.HAPPY;
 
   // ── 2. 建立 Context ──
-  const formattedUserMessage = `[${preferredName}${userLogin ? `(${userLogin})` : ''}|數據等級${userRecord.affection}] ${userMessage}`;
+  const formattedUserMessage = `[${preferredName}${userLogin ? `(${userLogin})` : ''}] ${userMessage}`;
    
   // 🆕 修改：加入 thread_id 過濾，讓子頻道的對話歷史獨立
   const threadFilter = threadId ? `AND m.message_thread_id = ${threadId}` : `AND (m.message_thread_id IS NULL OR m.message_thread_id = 0)`;
   const { results: recentMsgs } = await env.vera_db.prepare(`
-    SELECT m.role, m.content, u.first_name, u.username, u.user_notes, u.affection, m.message_thread_id
+    SELECT m.role, m.content, u.first_name, u.username, u.user_notes, m.message_thread_id
     FROM messages m
     LEFT JOIN users u ON m.user_id = u.user_id
     WHERE m.chat_id = ? ${threadFilter}
@@ -92,7 +84,7 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
     } catch {}
 
     if (m.role === 'user') {
-      return { role: "user", content: `[${name}${m.username ? `(${m.username})` : ''}|數據等級${m.affection || 0}] ${m.content.replace(/^\[.*?\]\s*/, '')}` };
+      return { role: "user", content: `[${name}${m.username ? `(${m.username})` : ''}] ${m.content.replace(/^\[.*?\]\s*/, '')}` };
     } else {
       const match = m.content.match(/^\(薇拉對\s*(.*?)\s*的回覆\)\s*/);
       const targetName = match ? match[1] : "對象";
@@ -122,7 +114,6 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
   let dynamicSystemPrompt = SYSTEM_PROMPT_TEMPLATE
     .replace(/{{user_name}}/g, userName)
     .replace(/{{preferred_name_info}}/g, preferredNameInfo)
-    .replace(/{{affection}}/g, userRecord.affection.toString())
     .replace(/{{memory}}/g, memory)
     .replace(/{{thread_memory}}/g, threadMemory)
     .replace(/{{thread_id}}/g, threadId?.toString() || "Main")
@@ -226,20 +217,14 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
   if (!aiReply) aiReply = "（薇拉輕輕整理了一下衣擺，用看著某種不可燃垃圾的優雅眼神注視著你）";
 
   // ── 6. 解析與清理 ──
-  let affDelta = 0;
   const cleanMsg = userMessage.toLowerCase();
   if ((cleanMsg.includes("早安") || cleanMsg.includes("晚安")) && userRecord.last_greeting_date !== todayDate) {
-    affDelta += 2;
     userRecord.last_greeting_date = todayDate;
     userRecord.check_in_days = (userRecord.check_in_days || 0) + 1;
   }
 
-  const affRegex = /[\[\(]AFF[:：]?\s*([+-]?\d+)[\]\)]/gi;
-  let match: RegExpExecArray | null;
-  while ((match = affRegex.exec(aiReply)) !== null) affDelta += parseInt(match[1], 10);
-
   let aiMood: string | null = null;
-  const moodRegex = /[\[\(]MOOD[:：]?\s*(HAPPY|SHY|ANGRY|HUNGRY)[\]\)]/gi;
+  const moodRegex = /[\[\(]MOOD[:：]?\s*(HAPPY|SHY|ANGRY|HUNGRY|BORED)[\]\)]/gi;
   const moodMatch = moodRegex.exec(aiReply);
   if (moodMatch) aiMood = moodMatch[1].toUpperCase();
 

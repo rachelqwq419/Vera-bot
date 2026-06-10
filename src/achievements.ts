@@ -13,11 +13,6 @@ export function checkAchievements(user: UserRecord): string[] {
   if (user.check_in_days >= 7 && !has("觀察樣本：連續一週被薇拉毒舌")) add("觀察樣本：連續一週被薇拉毒舌");
   if (user.check_in_days >= 30 && !has("合格的勞動力：薇拉承認你還算耐用")) add("合格 the 勞動力：薇拉承認你還算耐用");
 
-  // ── 信任里程碑 ──
-  if (user.affection >= 30 && !has("略有價值：你的存在不再那麼礙眼")) add("略有價值：你的存在不再那麼礙眼");
-  if (user.affection >= 60 && !has("獲認可的隨從：被薇拉賜予了服務的權利")) add("獲認可的隨從：被薇拉賜予了服務的權利");
-  if (user.affection >= 90 && !has("影子的同僚：在極少數時刻，你能看到她的真實")) add("影子的同僚：在極少數時刻，你能看到她的真實");
-
   // ── 互動類 ──
   let gifts: string[] = [];
   try { gifts = JSON.parse(user.gifts_received || '[]'); } catch { /* ignore */ }

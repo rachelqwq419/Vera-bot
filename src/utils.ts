@@ -1,27 +1,6 @@
 import { ADMIN_USER_ID } from "./constants";
 import type { Env } from "./types";
 
-/** 數據等級對應的稱號 (薇拉版) */
-export function getAffectionTitle(affection: number, userId?: string): string {
-  // 👑 創作者 (姐姐大人) 專屬稱號
-  if (userId === ADMIN_USER_ID) {
-    if (affection < 30)  return "敬愛的創作者";
-    if (affection < 70)  return "重要的生命來源";
-    if (affection < 90)  return "至高無上的指令官";
-    return "唯一的靈魂錨點";
-  }
-
-  // 👥 普通數據對象稱號
-  if (affection <= 0)  return "無價值樣本";
-  if (affection < 10)  return "初次掃描對象";
-  if (affection < 30)  return "一般實驗樣本";
-  if (affection < 50)  return "可觀測對象";
-  if (affection < 70)  return "數據協作者";
-  if (affection < 90)  return "認可的精英";
-  if (affection < 100) return "深度同步對象";
-  return "核心信任樣本";
-}
-
 /** 記錄特殊數據時刻 */
 export async function recordSpecialMoment(env: Env, userId: string, event: string) {
   try {
@@ -63,8 +42,8 @@ export async function logError(env: Env, userId: string | null, chatId: string |
 /** 確保用戶記錄存在 */
 export async function ensureUserExists(env: Env, userId: string, userName: string, userLogin?: string): Promise<void> {
   await env.vera_db.prepare(
-    `INSERT INTO users (user_id, first_name, username, affection, unsummarized_count, join_order) 
-     VALUES (?, ?, ?, 40, 0, (SELECT IFNULL(MAX(join_order), 0) + 1 FROM users))
+    `INSERT INTO users (user_id, first_name, username, unsummarized_count, join_order) 
+     VALUES (?, ?, ?, 0, (SELECT IFNULL(MAX(join_order), 0) + 1 FROM users))
      ON CONFLICT(user_id) DO UPDATE SET 
        first_name = CASE WHEN first_name = '' THEN excluded.first_name ELSE first_name END,
        username = excluded.username`
