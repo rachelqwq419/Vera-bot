@@ -512,89 +512,12 @@ ${historyText}
     }
   });
 
-  // ── /info (導航與房間資訊) ──
-  bot.command("info", async (ctx) => {
-    const chatId = ctx.chat.id.toString();
-    const cleanChatId = chatId.replace("-100", "");
-
-    // 取得所有可見房間
-    const { results: rooms } = await env.vera_db.prepare(
-      `SELECT thread_id, room_name, description FROM rooms 
-       WHERE chat_id = ? AND thread_id > 0 AND is_visible = 1 
-       ORDER BY sort_order ASC, thread_id ASC`
-    ).bind(chatId).all();
-
-    if (!rooms || rooms.length === 0) {
-      return ctx.reply("🧪 薇拉提示：目前還沒有任何公開房間的數據喔。");
-    }
-
-    let text = "📋 **紫羅蘭數據觀測站 - 房間導航**\n\n請選擇妳想前往的區域：";
-    const keyboard: any[][] = [];
-
-    for (const r of (rooms as any[])) {
-      keyboard.push([{
-        text: `🚀 前往 ${r.room_name}`,
-        callback_data: `goto:${r.thread_id}`
-      }]);
-    }
-
-    await ctx.reply(text, {
-      parse_mode: "Markdown",
-      reply_markup: { inline_keyboard: keyboard }
-    });
-  });
+  // ── /info (已刪除，改由新成員加入自動引導) ──
 
   // ── callback_query：處理導航與圖鑑 ──
   bot.on("callback_query", async (ctx) => {
     const data = ctx.callbackQuery?.data;
     if (!data) return;
-
-    // ── goto: 房間跳轉與自動介紹 ──
-    if (data.startsWith('goto:')) {
-      const threadId = parseInt(data.slice(5), 10);
-      const chatId = ctx.chat.id.toString();
-      const cleanChatId = chatId.replace("-100", "");
-      const user = ctx.from;
-      const mention = user.username ? `@${user.username}` : `[${user.first_name}](tg://user?id=${user.id})`;
-
-      // 取得房間詳情
-      const room: any = await env.vera_db.prepare(
-        `SELECT room_name, description FROM rooms WHERE chat_id = ? AND thread_id = ?`
-      ).bind(chatId, threadId).first();
-
-      if (!room) {
-        return ctx.answerCallbackQuery({ text: "找不到該房間的數據。", show_alert: true });
-      }
-
-      const roomName = room.room_name;
-      const roomDesc = room.description || "這裡暫時沒有詳細介紹數據。";
-
-      // 1. 先給用戶跳轉連結 (透過 answerCallbackQuery 無法直接跳轉，改為發送訊息)
-      await ctx.answerCallbackQuery({ text: `正在導向 ${roomName}...` });
-      
-      const jumpLink = `https://t.me/c/${cleanChatId}/${threadId}`;
-      await ctx.reply(`🔗 傳送門已開啟：[點擊這裡前往 ${roomName}](${jumpLink})`, { 
-        parse_mode: "Markdown",
-        reply_markup: { inline_keyboard: [[{ text: `🏃 點我跳轉到 ${roomName}`, url: jumpLink }]] }
-      });
-
-      // 2. 立即在目標房間發送標記訊息
-      try {
-        await ctx.api.sendMessage(ctx.chat.id, 
-          `📡 **[區域動態]**\n\n` +
-          `歡迎 ${mention} 抵達 **${roomName}**！\n` +
-          `📝 **區域簡報**：${roomDesc}\n\n` +
-          `薇拉會在這裡記錄妳的所有行為數據，請自便喔。`, 
-          { 
-            parse_mode: "Markdown",
-            message_thread_id: threadId 
-          }
-        );
-      } catch (e) {
-        console.error("發送導航訊息失敗:", e);
-      }
-      return;
-    }
 
     // ── deletecg: 分類預覽（GM only） ──
     if (data.startsWith('deletecg:')) {
@@ -804,66 +727,63 @@ bot.command("addkey", async (ctx) => {
     }
   });
 
-  // ── 🆕 新成員加入引導 (精確修復版) ──
+  // ── 🆕 新成員加入引導 (究極黑塔版) ──
   bot.on("message:new_chat_members", async (ctx) => {
     const newMembers = ctx.message.new_chat_members;
     const chatId = ctx.chat.id.toString();
     const cleanChatId = chatId.replace("-100", "");
+    const threadId = ctx.message.message_thread_id;
 
-    // 🎯 鎖定休閒區 ID: 210
-    const welcomeThreadId = 210;
+    // 只有在「大廳」(Thread ID 為空或 0) 加入時才觸發全局引導
+    if (threadId && threadId !== 0) return;
 
-    // 取得當前房間資訊
-    const currentThreadId = ctx.message.message_thread_id;
-    let currentRoomInfo = "這個房間";
-    if (currentThreadId) {
-      const room: any = await env.vera_db.prepare(
-        `SELECT room_name, description FROM rooms WHERE chat_id = ? AND thread_id = ?`
-      ).bind(chatId, currentThreadId).first();
-      if (room?.room_name) currentRoomInfo = `「${room.room_name}」`;
-      if (room?.description) currentRoomInfo += ` (${room.description})`;
-    }
-
-    // 取得已設置為可見的房間列表
+    // 取得所有可見且已排序的房間
     const { results: allRooms } = await env.vera_db.prepare(
       `SELECT thread_id, room_name, description FROM rooms 
-       WHERE chat_id = ? AND thread_id > 0 AND thread_id != 210 AND is_visible = 1 
-       ORDER BY sort_order ASC, thread_id ASC
+       WHERE chat_id = ? AND thread_id > 0 AND is_visible = 1 
+       ORDER BY sort_order ASC, thread_id ASC 
        LIMIT 10`
     ).bind(chatId).all();
 
     for (const member of newMembers) {
       if (member.is_bot) continue;
 
-      // 🎯 自動 @ 標記：如果有用戶名就用 @，沒有就用連結
       const mention = member.username ? `@${member.username}` : `[${member.first_name}](tg://user?id=${member.id})`;
 
-      // 建立房間連結與介紹
+      // 1. 建立大廳導航訊息 (直接跳轉連結)
       let roomLinks = (allRooms as any[]).map(r => {
-        const link = `📍 [${r.room_name}](https://t.me/c/${cleanChatId}/${r.thread_id})`;
-        return r.description ? `${link}\n└─ ${r.description}` : link;
+        return `📍 **[${r.room_name}](https://t.me/c/${cleanChatId}/${r.thread_id})**\n└─ ${r.description || '數據維護中'}`;
       }).join("\n\n");
 
-      if (!roomLinks) roomLinks = "（目前其他房間正在裝修中，先在大廳待著吧）";
+      if (!roomLinks) roomLinks = "（目前所有區域都處於封鎖狀態，沒什麼好看的）";
 
       const welcomeMsg = 
-        `喂，那邊的新人 ${mention}！\n` +
-        `歡迎來到 ${currentRoomInfo}。我是這個群組的引導人薇拉。\n` +
-        `既然來了就別傻站著，先去認識一下這裡吧：\n\n` +
-        `🏠 **[紫羅蘭喵喵酒館(休閒區)](https://t.me/c/${cleanChatId}/210)** (最重要的數據採集點)\n\n` +
+        `📡 **[觀測站提醒]**\n\n` +
+        `新樣本 ${mention} 已進入模擬環境。\n` +
+        `既然妳已經通過了傳輸鏈路，就別在那裡發呆浪費我的寬帶。這是我為妳整理的區域導覽，自己點擊跳轉，別指望我帶路：\n\n` +
         `${roomLinks}\n\n` +
-        `聽好了，我只說這一次，迷路了可別來找我哭喔！vera～`;
+        `數據收集已經開始，別讓我對妳的表現感到失望。vera～`;
 
-      try {
-        await ctx.api.sendMessage(ctx.chat.id, welcomeMsg, {
-          parse_mode: "Markdown",
-          message_thread_id: welcomeThreadId
-        });
-        console.log(`✅ [導航成功] 已引導新人 ${member.first_name} 到休閒區 (Thread 210)`);
-      } catch (e: any) {
-        console.error(`❌ [導航失敗]`, e.message);
-        // 如果 ID 210 發送失敗，退而求其次發在原地
-        await ctx.reply(welcomeMsg, { parse_mode: "Markdown" });
+      // 在大廳發送導覽
+      await ctx.reply(welcomeMsg, { parse_mode: "Markdown", disable_web_page_preview: true });
+
+      // 2. ⚡️ 同步在各個子頻道發送「預先迎接」標記 ⚡️
+      const targetRooms = (allRooms as any[]).slice(0, 5);
+      for (const r of targetRooms) {
+        try {
+          await ctx.api.sendMessage(ctx.chat.id, 
+            `📊 **[樣本追蹤]**\n\n` +
+            `偵測到新樣本 ${mention} 即將抵達 **${r.room_name}**。\n` +
+            `📝 **區域簡報**：${r.description || '無詳細數據'}\n\n` +
+            `（薇拉打了個哈欠）好了，既然標記完了，我就繼續做我的實驗了。`,
+            { 
+              parse_mode: "Markdown",
+              message_thread_id: r.thread_id 
+            }
+          );
+        } catch (e) {
+          console.error(`向房間 ${r.thread_id} 發送預告失敗:`, e);
+        }
       }
     }
   });
