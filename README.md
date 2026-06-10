@@ -6,7 +6,7 @@
 [![Database](https://img.shields.io/badge/DB-Cloudflare_D1-orange)](https://developers.cloudflare.com/d1/)
 
 Vera (薇拉) 是一個運行於 Cloudflare Workers 的進階 Telegram 群組引導與互動 AI。
-受到《崩壞：星穹鐵道》中「黑塔」的啟發，Vera 被設定為一位冷靜、高傲、缺乏耐心但智商極高的天才研究員。對她而言，這個 Telegram 群組不過是一個「模擬社交實驗」，而群組內的成員則是她觀察的「樣本」。
+受到《崩壞：星穹鐵道》中「黑塔」的啟發，Vera 被設定為一位冷靜、高傲、缺乏耐心但智商極高的天才研究員。對她而言，這個 Telegram 群組不過是一個「模擬社交實驗」，而群組內的客人則是她觀察的對象。
 
 ---
 
@@ -18,13 +18,13 @@ Vera (薇拉) 是一個運行於 Cloudflare Workers 的進階 Telegram 群組引
 - **去重防護網**：內建基於 `Message ID` 的絕對防重覆機制，免疫 Telegram Timeout 重試與多重 Webhook 觸發。
 
 ### 2. 🗺️ 究極群組導航系統 (Automated Group Navigation)
-- **無縫引導**：當新樣本（成員）加入群組時，Vera 會直接在指定的休閒區（Thread 210）現身，並精準 `@` 標記新人。
+- **無縫引導**：當新客人加入群組時，Vera 會直接在指定的休閒區（Thread 210）現身，並精準 `@` 標記新人。
 - **動態傳送門**：自動生成群組內其他子頻道的「一鍵跳轉」連結與區域簡報，不洗版、不囉唆。
 - **高度客製化**：管理員可透過指令隨時修改房間的介紹、隱藏特定房間，或設定列表的排序。
 
 ### 3. 📂 長期記憶與數據歸檔 (Long-term Memory & Archiving)
 - **Vectorize 向量記憶**：Vera 會記憶重要對話，並在後續交流中提取，形成「長久相處」的默契。
-- **情感與好感度系統 (Affection)**：對待低好感度樣本極度冷淡；對高好感度樣本則會展現出「智力上的尊重」與隱晦的關心（口嫌體正直）。
+- **情感與好感度系統 (Affection)**：對待低好感度客人極度冷淡；對高好感度客人則會展現出「智力上的尊重」與隱晦的關心（口嫌體正直）。
 - **定期數據壓縮**：對話超過一定數量後，會自動在後台將紀錄壓縮成全局摘要，節省 Token 並保持記憶清晰。
 
 ### 4. 🎨 視覺與語音擴展 (Vision & Voice Integration)
@@ -36,7 +36,7 @@ Vera (薇拉) 是一個運行於 Cloudflare Workers 的進階 Telegram 群組引
 
 ## 🛠️ 指令手冊 (Command Reference)
 
-### 👤 一般樣本 (General Users)
+### 👤 一般客人 (General Users)
 - `/start` 或 `/vera` - 查看基礎協議與系統介紹。
 - `/fortune` - 今日數據概率運算（戀愛占卜）。
 - `/group_impression` (或 `/gi`) - 要求 Vera 生成一份當前群組的「觀察報告」。
@@ -51,7 +51,7 @@ Vera (薇拉) 是一個運行於 Cloudflare Workers 的進階 Telegram 群組引
   - `/temp <0.0-2.0>` - 調整 AI 溫度（創造力）。
   - `/reset` - 清除特定目標的對話紀錄。
   - `/purge_all_memory` - **【終極清洗】** 徹底抹除資料庫中所有的對話、向量記憶與用戶好感度，讓 Vera 完全重置。
-  - `/setname <名字>` - (回覆某人) 強制修改 Vera 對該成員的稱呼。
+  - `/setname <名字>` - (回覆某人) 強制修改 Vera 對該客人的稱呼。
 - **除錯工具**
   - `/debug_room` - 檢查當前頻道的 Thread ID 與系統認知狀態。
   - `/checklogs` - 檢視系統的最近 5 條錯誤診斷日誌。
