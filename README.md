@@ -1,71 +1,86 @@
-# 🍇 Vera-bot (薇拉 AI)
+# 🔮 Vera-bot (薇拉) - The Simulated Social Experiment Overseer
 
-> **基於 Cloudflare Workers + D1 Database + DeepSeek API 的二次元傲嬌看板娘與社交互動 Telegram 機器人**
-
-[![Tech Stack](https://img.shields.io/badge/Stack-TypeScript%20%7C%20Cloudflare%20Workers%20%7C%20D1%20Database-blue)](https://workers.cloudflare.com/)
-[![LLM Engine](https://img.shields.io/badge/LLM-DeepSeek--V3-green)](https://api.deepseek.com)
+[![Cloudflare Workers](https://img.shields.io/badge/Deploy-Cloudflare%20Workers-f38020?logo=cloudflare)](https://workers.cloudflare.com/)
 [![Bot Framework](https://img.shields.io/badge/Framework-grammy.js-yellow)](https://grammy.dev/)
-[![GitHub Repo](https://img.shields.io/badge/GitHub-Vera--bot-181717?logo=github)](https://github.com/rachelqwq419/Vera-bot)
+[![AI Engine](https://img.shields.io/badge/AI-DeepSeek_v4_Pro-blue)](https://deepseek.com/)
+[![Database](https://img.shields.io/badge/DB-Cloudflare_D1-orange)](https://developers.cloudflare.com/d1/)
 
-`Vera-bot` 是一款專為 Telegram 平台設計的高級二次元角色扮演互動機器人。項目核心人物 **薇拉 (Vera)** 定位為一名 18 歲的傲嬌高中生兼酒館看板娘。本項目完全運行於 Serverless 環境，具備動態時間場景切換、長期記憶系統以及基於性別界定的社交互動邏輯。
-
----
-
-## 🌟 角色核心設定：薇拉 (Vera)
-
-薇拉擁有多重身份與鮮明的性格特徵，旨在提供極具沉浸感的互動體驗：
-
-*   **性格標籤**：傲嬌 (Tsundere)、微毒舌 (Sharp-tongued)、外冷內熱。
-*   **外貌特徵**：155cm，紫髮紫瞳，獨特的水母頭髮型（Jellyfish Cut）。
-*   **交互原則**：
-    *   **女性友好**：對女性用戶展現溫柔、害羞的一面，允許進行擁抱、摸頭等輕微親密互動。
-    *   **男性防衛**：對男性用戶保持冷淡與防範，嚴格拒絕肢體接觸及任何冒犯行為。
+Vera (薇拉) 是一個運行於 Cloudflare Workers 的進階 Telegram 群組引導與互動 AI。
+受到《崩壞：星穹鐵道》中「黑塔」的啟發，Vera 被設定為一位冷靜、高傲、缺乏耐心但智商極高的天才研究員。對她而言，這個 Telegram 群組不過是一個「模擬社交實驗」，而群組內的成員則是她觀察的「樣本」。
 
 ---
 
-## 🚀 核心功能特性
+## 🌟 核心功能 (Core Features)
 
-### 1. 🎭 動態場景與時間感知
-系統會根據香港時間 (UTC+8) 自動切換薇拉的身份設定（校園/酒館/居家）、服裝描述及對話風格。
+### 1. 🧠 高智能上下文對話 (Context-Aware AI)
+- **DeepSeek v4 Pro 驅動**：具備深度的語意理解與邏輯分析能力。
+- **三人對話理解**：當群組成員互相回覆並提及薇拉時，系統能精準捕捉「誰在對誰說話」，讓薇拉能完美介入並進行犀利的吐槽。
+- **去重防護網**：內建基於 `Message ID` 的絕對防重覆機制，免疫 Telegram Timeout 重試與多重 Webhook 觸發。
 
-### 2. 💖 數據驅動的好感度系統
-透過 D1 數據庫記錄用戶與薇拉的每一項互動：
-*   **好感度分階**：從「陌生」到「親密羈絆」，薇拉的態度會隨數據等級提升而演變。
-*   **性別界定社交**：系統會根據用戶性別調整社交邊界，確保護理級別的互動安全。
+### 2. 🗺️ 究極群組導航系統 (Automated Group Navigation)
+- **無縫引導**：當新樣本（成員）加入群組時，Vera 會直接在指定的休閒區（Thread 210）現身，並精準 `@` 標記新人。
+- **動態傳送門**：自動生成群組內其他子頻道的「一鍵跳轉」連結與區域簡報，不洗版、不囉唆。
+- **高度客製化**：管理員可透過指令隨時修改房間的介紹、隱藏特定房間，或設定列表的排序。
 
-### 3. 🧠 長期記憶與數據壓縮
-*   **記憶總結**：系統會自動對近期對話進行特徵提取與摘要，確保存儲核心羈絆。
-*   **向量檢索**：利用 Vectorize 實現語義化記憶搜索，讓薇拉擁有「回憶」能力。
+### 3. 📂 長期記憶與數據歸檔 (Long-term Memory & Archiving)
+- **Vectorize 向量記憶**：Vera 會記憶重要對話，並在後續交流中提取，形成「長久相處」的默契。
+- **情感與好感度系統 (Affection)**：對待低好感度樣本極度冷淡；對高好感度樣本則會展現出「智力上的尊重」與隱晦的關心（口嫌體正直）。
+- **定期數據壓縮**：對話超過一定數量後，會自動在後台將紀錄壓縮成全局摘要，節省 Token 並保持記憶清晰。
 
-### 4. 📸 視覺數據傳輸
-*   **圖像識別**：薇拉能透過「眼睛」(Gemini Vision) 看見用戶發送的圖片並給予評論。
-*   **AI 自拍**：整合 ComfyUI 異步生成薇拉的各種生活照與酒館工作照。
-
----
-
-## 📋 指令手冊
-
-*   `/start` - 初始化與薇拉的數據連線。
-*   `/vera` - 獲取薇拉的系統協議與幫助指南。
-*   `/profile` - 渲染精美的個人專屬數據檔案卡。
-*   `/daily` - 進行每日簽到與心情互動。
-*   `/cg` - 查看已解鎖的視覺圖鑑（私聊專用）。
-*   `/fortune` - 抽取今日戀愛占卜數據。
+### 4. 🎨 視覺與語音擴展 (Vision & Voice Integration)
+- **Gemini 視覺識別**：傳送圖片給 Vera，她能看懂內容並根據性格進行評論。
+- **ComfyUI 自拍生成**：支援指令觸發，透過後台 ComfyUI 節點為使用者生成高質量的「視覺數據包」。
+- **GPT-SoVITS 語音**：支援動態語音合成回覆（當配置了 `VOICE_API_URL` 時）。
 
 ---
 
-## 🛠️ 技術架構
+## 🛠️ 指令手冊 (Command Reference)
 
-*   **Runtime**: Cloudflare Workers
-*   **Database**: Cloudflare D1 & Vectorize
-*   **LLM Engine**: DeepSeek-V3 (Text) / Gemini-1.5-Flash (Vision)
-*   **Image Gen**: ComfyUI API
+### 👤 一般樣本 (General Users)
+- `/start` 或 `/vera` - 查看基礎協議與系統介紹。
+- `/fortune` - 今日數據概率運算（戀愛占卜）。
+- `/group_impression` (或 `/gi`) - 要求 Vera 生成一份當前群組的「觀察報告」。
+- `/cg` - (私訊專用) 開啟妳的專屬視覺數據庫（圖鑑）。
+
+### 👑 創作者/管理員 (Admin/Boss Only)
+- **房間導航管理**
+  - `/setroomdesc <文字>` - 設置當前子頻道的介紹（輸入「隱藏」可將此房間從導航移除）。
+  - `/setroomname <名字>` - 強制覆寫當前子頻道的名稱。
+  - `/setroomorder <數字>` - 調整該房間在導航列表中的順序（數字越小越前面）。
+- **系統與權限管理**
+  - `/temp <0.0-2.0>` - 調整 AI 溫度（創造力）。
+  - `/reset` - 清除特定目標的對話紀錄。
+  - `/purge_all_memory` - **【終極清洗】** 徹底抹除資料庫中所有的對話、向量記憶與用戶好感度，讓 Vera 完全重置。
+  - `/setname <名字>` - (回覆某人) 強制修改 Vera 對該成員的稱呼。
+- **除錯工具**
+  - `/debug_room` - 檢查當前頻道的 Thread ID 與系統認知狀態。
+  - `/checklogs` - 檢視系統的最近 5 條錯誤診斷日誌。
 
 ---
 
-## ⚠️ 免責聲明
+## 🚀 部署指南 (Deployment)
 
-本項目已移除所有露骨色情內容 (NSFW/SEX)。項目僅供娛樂及 AI 技術研究用途。請確保您的使用符合當地法律法規。
+1. **環境變數配置 (`.dev.vars`)**
+   ```env
+   BOT_TOKEN="your_telegram_bot_token"
+   DEEPSEEK_API_KEY="your_deepseek_key"
+   GEMINI_API_KEY="your_gemini_key"
+   # ... 其他可選 API 密鑰
+   ```
+
+2. **基礎設施建置**
+   - 建立 D1 資料庫並執行遷移檔 (`schema.sql` 與 `migrate_rooms.sql`)。
+   - 建立 Cloudflare Vectorize 索引 (名稱: `ciallo-memory-index`，維度 1024，指標 cosine)。
+   - 更新 `wrangler.jsonc` 中的 `database_id`。
+
+3. **上傳部署**
+   ```bash
+   npm run deploy
+   ```
+
+4. **綁定 Webhook**
+   將部署後的 Worker URL 設定為 Telegram Bot 的 Webhook 終端點。
 
 ---
-*© 2026 Vera Project. Created by 音 (Yin).*
+
+*“人類的情感波動真是一種毫無效率的數據浪費。不過，既然妳都發送請求了，我就勉強花兩秒鐘處理一下吧。” —— Vera*
