@@ -39,4 +39,5 @@ export interface UserRecord {
 
   user_notes: string;    // JSON: {"name":"小明","nickname":"..."}
   last_scene: string;    // 上次場景標籤: "school" | "bar" | "home" | ""
+  titles: string;        // JSON array of strings: '["貓科動物觀測對象"]'
 }

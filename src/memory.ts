@@ -52,15 +52,17 @@ ${historyText}
 [Task]:
 1. Update the long-term summary. Merge new critical findings into the profile.
 2. Generate a unique "Past Interaction Snapshot" for this segment.
+3. Observe the guest's behavior and optionally generate a short, creative "Tag" or "Title" (e.g., "深夜話癆", "貓咪狂熱者", "數據干擾源") that summarizes their recent conversational habit.
 
 [Output Requirements]:
-- Language: ENGLISH.
+- Language: ENGLISH (except for the Tag, which must be TRADITIONAL CHINESE).
 - Format: JSON.
 {
   "global_summary": "Updated summary.",
   "segment_snapshot": "Brief description of this interaction.",
   "likes": ["Identified interests"],
-  "dislikes": ["Identified aversions"]
+  "dislikes": ["Identified aversions"],
+  "new_title": "String (Optional, max 10 chars, e.g., '貓科動物觀測對象'. Provide only if a strong habit is detected, otherwise empty.)"
 }
 `;
 
@@ -77,15 +79,32 @@ try {
     const parsed = JSON.parse(data.choices[0].message.content.trim());
     const newGlobalSummary = parsed.global_summary || currentSummary;
     const segmentSnapshot = parsed.segment_snapshot;
+    const newTitle = parsed.new_title;
+
+    let titlesUpdate = "";
+    let binds: any[] = [newGlobalSummary, JSON.stringify(parsed.likes || []), JSON.stringify(parsed.dislikes || []), userId];
+
+    if (newTitle && newTitle.trim() !== "") {
+      const user = await env.vera_db.prepare(`SELECT titles FROM users WHERE user_id = ?`).bind(userId).first() as any;
+      let currentTitles: string[] = [];
+      try { currentTitles = JSON.parse(user?.titles || '[]'); } catch {}
+      if (!currentTitles.includes(newTitle)) {
+        currentTitles.push(newTitle);
+        // Keep only the latest 5 titles
+        if (currentTitles.length > 5) currentTitles = currentTitles.slice(-5);
+        titlesUpdate = ", titles = ?";
+        binds = [newGlobalSummary, JSON.stringify(parsed.likes || []), JSON.stringify(parsed.dislikes || []), JSON.stringify(currentTitles), userId];
+      }
+    }
 
     await env.vera_db.prepare(
       `UPDATE users SET
          conversation_summary = ?,
          unsummarized_count = 0,
          user_likes = ?,
-         user_dislikes = ?
+         user_dislikes = ?${titlesUpdate}
        WHERE user_id = ?`
-    ).bind(newGlobalSummary, JSON.stringify(parsed.likes || []), JSON.stringify(parsed.dislikes || []), userId).run();
+    ).bind(...binds).run();
 
     if (segmentSnapshot) {
       await storeVectorMemory(env, userId, `[Archive Record] ${segmentSnapshot}`);

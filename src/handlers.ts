@@ -727,6 +727,43 @@ bot.command("addkey", async (ctx) => {
     }
   });
 
+  // ── /profile (個人數據面板) ──
+  bot.command("profile", async (ctx) => {
+    const userId = ctx.from?.id.toString();
+    if (!userId) return;
+
+    try {
+      const user = await env.vera_db.prepare(
+        `SELECT affection, titles, user_notes FROM users WHERE user_id = ?`
+      ).bind(userId).first() as any;
+
+      if (!user) {
+        return ctx.reply("🧪 薇拉提示：數據庫中尚未建立妳的檔案。");
+      }
+
+      let titlesArray: string[] = [];
+      try { titlesArray = JSON.parse(user.titles || '[]'); } catch {}
+      const titlesDisplay = titlesArray.length > 0 ? titlesArray.join('、') : '無 (尚未收集到足夠特徵)';
+
+      let notes = {};
+      try { notes = JSON.parse(user.user_notes || '{}'); } catch {}
+      const customName = (notes as any)["稱呼"] || "未設定";
+
+      const text = 
+        `📊 **[樣本觀測面板]**\n\n` +
+        `👤 **目標**: ${ctx.from?.first_name}\n` +
+        `📝 **自訂稱呼**: ${customName}\n` +
+        `❤️ **觀測興趣值 (Affection)**: ${user.affection}\n` +
+        `🏷️ **行為特徵標籤**: ${titlesDisplay}\n\n` +
+        `*「妳的數據變化還算勉強有點意思，繼續保持吧。」*`;
+
+      await ctx.reply(text, { parse_mode: "Markdown" });
+    } catch (e) {
+      console.error("Profile Error:", e);
+      await ctx.reply("❌ 讀取檔案失敗。");
+    }
+  });
+
   // ── 🆕 新成員加入引導 (究極黑塔版 + 防重複) ──
   bot.on("message:new_chat_members", async (ctx) => {
     const newMembers = ctx.message.new_chat_members;

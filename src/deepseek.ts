@@ -60,6 +60,10 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
     ? Object.entries(userNotes).map(([k, v]) => `${k}: ${v.substring(0, 15)}`).join('、')
     : 'No notes';
   
+  let titlesArray: string[] = [];
+  try { titlesArray = JSON.parse(userRecord.titles || '[]'); } catch {}
+  const titlesText = titlesArray.length > 0 ? titlesArray.join(', ') : 'None';
+
   const preferredName = userNotes["稱呼"] || userName;
   const preferredNameInfo = preferredName !== userName ? `(Preferred Name: ${preferredName}) ` : "";
   const memory = userRecord.conversation_summary || 'No prior data.';
@@ -124,6 +128,7 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
     .replace(/{{thread_id}}/g, threadId?.toString() || "Main")
     .replace(/{{time_scene}}/g, timeScene)
     .replace(/{{user_notes}}/g, userNotesText)
+    .replace(/{{titles}}/g, titlesText)
     .replace(/{{mood}}/g, `${moodInfo.emoji} ${moodInfo.label}`)
     .replace(/{{room_name}}/g, roomName) + (relatedMemories.length > 0 ? `\n\n[Related Data Snippets]:\n${relatedMemories.join('\n')}` : '');
 

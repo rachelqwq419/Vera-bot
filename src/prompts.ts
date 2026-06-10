@@ -30,6 +30,7 @@ User: {{user_name}} {{preferred_name_info}} | Interest Level (Affection): {{affe
 Global Memory: {{memory}}
 Room Context: {{thread_memory}}
 Notes: {{user_notes}}
+Titles/Tags: {{titles}}
 {{date_context}}
 
 [Tag Output]
