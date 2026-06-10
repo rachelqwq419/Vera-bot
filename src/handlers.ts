@@ -511,10 +511,89 @@ ${historyText}
     }
   });
 
-  // ── callback_query：CG 圖鑑 / 管理按鈕處理 ──
+  // ── /info (導航與房間資訊) ──
+  bot.command("info", async (ctx) => {
+    const chatId = ctx.chat.id.toString();
+    const cleanChatId = chatId.replace("-100", "");
+
+    // 取得所有可見房間
+    const { results: rooms } = await env.vera_db.prepare(
+      `SELECT thread_id, room_name, description FROM rooms 
+       WHERE chat_id = ? AND thread_id > 0 AND is_visible = 1 
+       ORDER BY thread_id ASC`
+    ).bind(chatId).all();
+
+    if (!rooms || rooms.length === 0) {
+      return ctx.reply("🧪 薇拉提示：目前還沒有任何公開房間的數據喔。");
+    }
+
+    let text = "📋 **紫羅蘭數據觀測站 - 房間導航**\n\n請選擇妳想前往的區域：";
+    const keyboard: any[][] = [];
+
+    for (const r of (rooms as any[])) {
+      keyboard.push([{
+        text: `🚀 前往 ${r.room_name}`,
+        callback_data: `goto:${r.thread_id}`
+      }]);
+    }
+
+    await ctx.reply(text, {
+      parse_mode: "Markdown",
+      reply_markup: { inline_keyboard: keyboard }
+    });
+  });
+
+  // ── callback_query：處理導航與圖鑑 ──
   bot.on("callback_query", async (ctx) => {
     const data = ctx.callbackQuery?.data;
     if (!data) return;
+
+    // ── goto: 房間跳轉與自動介紹 ──
+    if (data.startsWith('goto:')) {
+      const threadId = parseInt(data.slice(5), 10);
+      const chatId = ctx.chat.id.toString();
+      const cleanChatId = chatId.replace("-100", "");
+      const user = ctx.from;
+      const mention = user.username ? `@${user.username}` : `[${user.first_name}](tg://user?id=${user.id})`;
+
+      // 取得房間詳情
+      const room: any = await env.vera_db.prepare(
+        `SELECT room_name, description FROM rooms WHERE chat_id = ? AND thread_id = ?`
+      ).bind(chatId, threadId).first();
+
+      if (!room) {
+        return ctx.answerCallbackQuery({ text: "找不到該房間的數據。", show_alert: true });
+      }
+
+      const roomName = room.room_name;
+      const roomDesc = room.description || "這裡暫時沒有詳細介紹數據。";
+
+      // 1. 先給用戶跳轉連結 (透過 answerCallbackQuery 無法直接跳轉，改為發送訊息)
+      await ctx.answerCallbackQuery({ text: `正在導向 ${roomName}...` });
+      
+      const jumpLink = `https://t.me/c/${cleanChatId}/${threadId}`;
+      await ctx.reply(`🔗 傳送門已開啟：[點擊這裡前往 ${roomName}](${jumpLink})`, { 
+        parse_mode: "Markdown",
+        reply_markup: { inline_keyboard: [[{ text: `🏃 點我跳轉到 ${roomName}`, url: jumpLink }]] }
+      });
+
+      // 2. 立即在目標房間發送標記訊息
+      try {
+        await ctx.api.sendMessage(ctx.chat.id, 
+          `📡 **[區域動態]**\n\n` +
+          `歡迎 ${mention} 抵達 **${roomName}**！\n` +
+          `📝 **區域簡報**：${roomDesc}\n\n` +
+          `薇拉會在這裡記錄妳的所有行為數據，請自便喔。vera～`, 
+          { 
+            parse_mode: "Markdown",
+            message_thread_id: threadId 
+          }
+        );
+      } catch (e) {
+        console.error("發送導航訊息失敗:", e);
+      }
+      return;
+    }
 
     // ── deletecg: 分類預覽（GM only） ──
     if (data.startsWith('deletecg:')) {
