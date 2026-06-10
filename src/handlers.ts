@@ -583,7 +583,7 @@ ${historyText}
           `📡 **[區域動態]**\n\n` +
           `歡迎 ${mention} 抵達 **${roomName}**！\n` +
           `📝 **區域簡報**：${roomDesc}\n\n` +
-          `薇拉會在這裡記錄妳的所有行為數據，請自便喔。vera～`, 
+          `薇拉會在這裡記錄妳的所有行為數據，請自便喔。`, 
           { 
             parse_mode: "Markdown",
             message_thread_id: threadId 
@@ -1012,8 +1012,8 @@ bot.command("addkey", async (ctx) => {
 
         if (contentBrief.length > 50) contentBrief = contentBrief.substring(0, 50) + "...";
 
-        // 如果回覆的是薇拉自己 (判斷 ID 或 判斷是否為 bot)
-        if (replyMsg.from?.id === ctx.me.id || replyMsg.from?.is_bot) {
+        // 如果回覆的是薇拉自己 (嚴格判斷 ID，排除其他機器人)
+        if (replyMsg.from?.id === ctx.me.id) {
             userMessage = `[回覆薇拉：「${contentBrief}」] ` + userMessage;
         } else {
             // 將被回覆的內容注入，讓 AI 知道對話的上下文
