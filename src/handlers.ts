@@ -998,26 +998,26 @@ bot.command("addkey", async (ctx) => {
       const replyMsg = ctx.message.reply_to_message;
       if (replyMsg) {
         const repliedName = replyMsg.from?.first_name || "客人";
-        const repliedLogin = replyMsg.from?.username ? `@${replyMsg.from.username}` : "";
         
         let contentBrief = "";
         if (replyMsg.text) contentBrief = replyMsg.text;
         else if (replyMsg.caption) contentBrief = replyMsg.caption;
         else if (replyMsg.photo) contentBrief = "(圖片)";
         else if (replyMsg.sticker) contentBrief = "(貼圖)";
+        else if (replyMsg.animation) contentBrief = "(GIF動圖)";
+        else if (replyMsg.document) contentBrief = "(檔案)";
         else if (replyMsg.voice) contentBrief = "(語音)";
         else if (replyMsg.video) contentBrief = "(影片)";
-        else contentBrief = "(非文字內容)";
+        else contentBrief = "(其他內容)";
 
         if (contentBrief.length > 50) contentBrief = contentBrief.substring(0, 50) + "...";
 
         // 如果回覆的是薇拉自己 (判斷 ID 或 判斷是否為 bot)
         if (replyMsg.from?.id === ctx.me.id || replyMsg.from?.is_bot) {
-            userMessage = `[回覆 薇拉：「${contentBrief}」] ` + userMessage;
+            userMessage = `[回覆薇拉：「${contentBrief}」] ` + userMessage;
         } else {
-            // 將被回覆的內容注入
-            const replyTag = repliedLogin ? `[回覆 ${repliedName}(${repliedLogin})：「${contentBrief}」] ` : `[回覆 ${repliedName}：「${contentBrief}」] `;
-            userMessage = replyTag + userMessage;
+            // 將被回覆的內容注入，讓 AI 知道對話的上下文
+            userMessage = `[對 ${repliedName} 回覆：「${contentBrief}」] ` + userMessage;
         }
       }
 
