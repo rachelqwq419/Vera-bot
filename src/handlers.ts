@@ -727,26 +727,50 @@ bot.command("addkey", async (ctx) => {
     }
   });
 
-  // ── 🆕 新成員加入引導 (究極黑塔版) ──
+  // ── 🆕 新成員加入引導 (究極黑塔版 + 防重複) ──
   bot.on("message:new_chat_members", async (ctx) => {
     const newMembers = ctx.message.new_chat_members;
     const chatId = ctx.chat.id.toString();
     const cleanChatId = chatId.replace("-100", "");
-    const threadId = ctx.message.message_thread_id;
-
-    // 只有在「大廳」(Thread ID 為空或 0) 加入時才觸發全局引導
-    if (threadId && threadId !== 0) return;
-
-    // 取得所有可見且已排序的房間
-    const { results: allRooms } = await env.vera_db.prepare(
-      `SELECT thread_id, room_name, description FROM rooms 
-       WHERE chat_id = ? AND thread_id > 0 AND is_visible = 1 
-       ORDER BY sort_order ASC, thread_id ASC 
-       LIMIT 10`
-    ).bind(chatId).all();
 
     for (const member of newMembers) {
       if (member.is_bot) continue;
+
+      const userIdStr = member.id.toString();
+      
+      // 🛡️ [防重複歡迎機制] 檢查此用戶是否剛被歡迎過 (1分鐘內)
+      try {
+        const { success } = await env.vera_db.prepare(`
+          INSERT INTO welcome_logs (user_id) VALUES (?)
+        `).bind(userIdStr).run();
+        
+        // 如果插入失敗 (因為 Primary Key 衝突)，代表剛剛已經處理過了
+        if (!success) {
+            console.log(`[引導攔截] 用戶 ${member.first_name} 已經被歡迎過了，跳過本次重複觸發。`);
+            continue;
+        }
+        
+        // 自動清理 10 分鐘前的記錄，避免資料表無限膨脹
+        ctx.api.config.use(async (prev, method, payload, signal) => {
+            env.vera_db.prepare(`DELETE FROM welcome_logs WHERE created_at < datetime('now', '-10 minutes')`).run().catch(()=>console.log("Cleanup welcome logs failed"));
+            return prev(method, payload, signal);
+        });
+
+      } catch (e) {
+          // 如果是 UNIQUE constraint failed，就是重複了
+          if ((e as any).message?.includes("UNIQUE")) {
+             console.log(`[引導攔截] 用戶 ${member.first_name} 已經被歡迎過了，跳過本次重複觸發。`);
+             continue;
+          }
+      }
+
+      // 取得所有可見且已排序的房間
+      const { results: allRooms } = await env.vera_db.prepare(
+        `SELECT thread_id, room_name, description FROM rooms 
+         WHERE chat_id = ? AND thread_id > 0 AND is_visible = 1 
+         ORDER BY sort_order ASC, thread_id ASC 
+         LIMIT 10`
+      ).bind(chatId).all();
 
       const mention = member.username ? `@${member.username}` : `[${member.first_name}](tg://user?id=${member.id})`;
 
@@ -764,11 +788,17 @@ bot.command("addkey", async (ctx) => {
         `${roomLinks}\n\n` +
         `數據收集已經開始，別讓我對妳的表現感到失望。vera～`;
 
-      // 在大廳發送導覽
-      await ctx.reply(welcomeMsg, { parse_mode: "Markdown", disable_web_page_preview: true });
+      // 永遠發送到主群組(大廳)
+      await ctx.reply(welcomeMsg, { parse_mode: "Markdown", disable_web_page_preview: true, message_thread_id: undefined });
 
       // 2. ⚡️ 同步在各個子頻道發送「預先迎接」標記 ⚡️
       const targetRooms = (allRooms as any[]).slice(0, 5);
+      
+      // 確保 210 (休閒區) 被包含在內，如果它可見且不在前 5 名
+      const has210 = targetRooms.some(r => r.thread_id === 210);
+      const room210 = (allRooms as any[]).find(r => r.thread_id === 210);
+      if (!has210 && room210) targetRooms.push(room210);
+
       for (const r of targetRooms) {
         try {
           await ctx.api.sendMessage(ctx.chat.id, 
