@@ -15,9 +15,9 @@ export async function summarizeMemory(
     SELECT m.role, m.content, u.first_name, u.username, u.user_notes
     FROM messages m
     LEFT JOIN users u ON m.user_id = u.user_id
-    WHERE m.chat_id = ?
+    WHERE m.chat_id = ? AND m.user_id = ?
     ORDER BY m.id DESC LIMIT 50
-  `).bind(chatId).all();
+  `).bind(chatId, userId).all();
 
   if (!recentMsgs || recentMsgs.length === 0) return;
 
