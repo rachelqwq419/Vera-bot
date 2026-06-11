@@ -56,16 +56,17 @@ ${historyText}
 4. Observe the guest's behavior and optionally generate a short, creative "Tag" or "Title" (e.g., "深夜話癆", "貓咪狂熱者", "數據干擾源") that summarizes their recent conversational habit.
 
 [Output Requirements]:
-- Language: ENGLISH (except for the Tag, which must be TRADITIONAL CHINESE).
 - Format: JSON.
-- **Critical Requirement**: The "global_summary" MUST be a structured, bulleted list in a clinical style. Limit to 3-5 key points. 
+- **global_summary**: Detailed English clinical log (3-5 bullet points) for Vera's internal logic.
+- **chinese_summary**: A VERY CONCISE (1-3 sentences) summary in **TRADITIONAL CHINESE** for the guest to see. It should sound like Vera's direct, slightly blunt observation.
+- **new_title**: Optional Traditional Chinese tag.
 
 {
-  "global_summary": "- Pattern: [Description]\n- Knowledge: [Description]\n- Status: [Relationship Evaluation]",
-  "segment_snapshot": "Brief description of this interaction.",
-  "likes": ["Identified interests"],
-  "dislikes": ["Identified aversions"],
-  "new_title": "String (Optional, max 10 chars, e.g., '貓科動物觀測對象'. Provide only if a strong habit is detected, otherwise empty.)"
+  "global_summary": "- Pattern: ...\n- Knowledge: ...",
+  "chinese_summary": "妳這幾次的發言數據偏差很大，我懷疑妳的大腦模組需要重置。",
+  "likes": [],
+  "dislikes": [],
+  "new_title": ""
 }
 `;
 
@@ -81,11 +82,12 @@ try {
 
     const parsed = JSON.parse(data.choices[0].message.content.trim());
     const newGlobalSummary = parsed.global_summary || currentSummary;
+    const chineseSummary = parsed.chinese_summary || "";
     const segmentSnapshot = parsed.segment_snapshot;
     const newTitle = parsed.new_title;
 
     let titlesUpdate = "";
-    let binds: any[] = [newGlobalSummary, JSON.stringify(parsed.likes || []), JSON.stringify(parsed.dislikes || []), userId];
+    let binds: any[] = [newGlobalSummary, chineseSummary, JSON.stringify(parsed.likes || []), JSON.stringify(parsed.dislikes || []), userId];
 
     if (newTitle && newTitle.trim() !== "") {
       const user = await env.vera_db.prepare(`SELECT titles FROM users WHERE user_id = ?`).bind(userId).first() as any;
@@ -93,16 +95,16 @@ try {
       try { currentTitles = JSON.parse(user?.titles || '[]'); } catch {}
       if (!currentTitles.includes(newTitle)) {
         currentTitles.push(newTitle);
-        // Keep only the latest 5 titles
         if (currentTitles.length > 5) currentTitles = currentTitles.slice(-5);
         titlesUpdate = ", titles = ?";
-        binds = [newGlobalSummary, JSON.stringify(parsed.likes || []), JSON.stringify(parsed.dislikes || []), JSON.stringify(currentTitles), userId];
+        binds = [newGlobalSummary, chineseSummary, JSON.stringify(parsed.likes || []), JSON.stringify(parsed.dislikes || []), JSON.stringify(currentTitles), userId];
       }
     }
 
     await env.vera_db.prepare(
       `UPDATE users SET
          conversation_summary = ?,
+         chinese_summary = ?,
          unsummarized_count = 0,
          user_likes = ?,
          user_dislikes = ?${titlesUpdate}

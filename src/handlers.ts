@@ -734,7 +734,7 @@ bot.command("addkey", async (ctx) => {
 
     try {
       const user = await env.vera_db.prepare(
-        `SELECT titles, user_notes, conversation_summary FROM users WHERE user_id = ?`
+        `SELECT titles, user_notes, chinese_summary FROM users WHERE user_id = ?`
       ).bind(userId).first() as any;
 
       if (!user) {
@@ -754,11 +754,11 @@ bot.command("addkey", async (ctx) => {
         `👤 **目標**: ${ctx.from?.first_name}\n` +
         `📝 **稱呼**: ${customName}\n` +
         `🏷️ **標籤**: ${titlesDisplay}\n\n` +
-        `📂 **臨床觀測摘要 (Observation Log)**:\n` +
+        `📂 **臨床觀測摘要 (Observation)**:\n` +
         `\`\`\`\n` +
         `STATUS: LOGGING...\n` +
         `------------------\n` +
-        `${user.conversation_summary || 'INITIALIZING DATA...'}\n` +
+        `${user.chinese_summary || '數據初始化中...'}\n` +
         `\`\`\`\n` +
         `*「妳的數據變化還算勉強有點意思，繼續保持吧。」*`;
 
