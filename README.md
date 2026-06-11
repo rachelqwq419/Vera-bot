@@ -11,10 +11,6 @@ Vera-bot is an advanced, AI-driven Telegram group guide and interactive agent in
 ### ✨ Overview
 Vera isn't just another chatbot. She is a **Simulated Social Experiment Overseer**. Designed with a cool, detached, and brilliant persona, she monitors group dynamics, interacts with "guests" (users), and maintains a persistent memory of every interaction. 
 
-- **High Intelligence**: Driven by DeepSeek v4 Pro, capable of complex reasoning and dry wit.
-- **Robust Engineering**: Built to handle high-traffic groups with zero duplicate replies and 100% webhook reliability.
-- **Persistent Persona**: Maintains a strict "Herta-like" character across sessions, evolving based on her memory of you.
-
 ### 🏗️ System Architecture
 
 ```mermaid
@@ -32,6 +28,7 @@ graph TD
     
     CFW -->|Voice Generation| VS[GPT-SoVITS API]
     CFW -->|Visual Generation| CUI[ComfyUI Cloud]
+    CFW -->|Search Functionality| TAV[Tavily Search API]
     CFW -->|Real-time Feedback| TG
 ```
 
@@ -41,11 +38,21 @@ graph TD
 - **Intelligent Group Management**: Topic-aware automated welcome system and periodic observation reports.
 - **Memory-Based Relationships**: Vera's attitude evolves naturally based on past interaction history.
 
-### 🛠️ Tech Stack
-- **Runtime**: Cloudflare Workers
-- **AI/LLM**: DeepSeek v4 Pro, Gemini 1.5 Pro
-- **Storage**: Cloudflare D1 (SQL), Cloudflare Vectorize (Vector)
-- **Framework**: Grammy.js
+### 🛠️ Detailed Tech Stack
+
+| Category | Technology | Role |
+| :--- | :--- | :--- |
+| **Compute** | [Cloudflare Workers](https://workers.cloudflare.com/) | Edge runtime for global, low-latency execution |
+| **Primary AI** | [DeepSeek v4 Pro](https://deepseek.com/) | Logic, reasoning, and core dialogue generation |
+| **Vision AI** | [Google Gemini 1.5 Pro](https://deepmind.google/technologies/gemini/) | Multimodal understanding of images and stickers |
+| **Vector DB** | [Cloudflare Vectorize](https://developers.cloudflare.com/vectorize/) | Vector storage for Long-term Memory (RAG) |
+| **Embedding** | [Cloudflare AI Workers](https://developers.cloudflare.com/workers-ai/) | `@cf/baai/bge-m3` model for vector generation |
+| **SQL DB** | [Cloudflare D1](https://developers.cloudflare.com/d1/) | Distributed SQL for user profiles and state management |
+| **Bot Framework** | [Grammy.js](https://grammy.dev/) | High-performance Telegram Bot framework |
+| **Search Engine** | [Tavily API](https://tavily.com/) | AI-optimized web search for real-time information |
+| **Image Gen** | [ComfyUI Cloud](https://comfyanonymous.github.io/ComfyUI/) | Remote generation of "holographic visual data shards" |
+| **Voice Synth** | [GPT-SoVITS](https://github.com/RVC-Boss/GPT-SoVITS) | Dynamic voice generation and response synthesis |
+| **Development** | [TypeScript](https://www.typescriptlang.org/) | Type-safe development for complex AI logic |
 
 ---
 
@@ -55,10 +62,6 @@ graph TD
 
 ### ✨ 概覽
 薇拉不只是一個普通的聊天機器人。她是「**模擬社交實驗的觀測者**」。她擁有冷靜、疏離且天才的人設，負責監控群組動態、與「客人」（用戶）互動，並對每一次交流保持持久的記憶。
-
-- **高智能**: 由 DeepSeek v4 Pro 驅動，具備複雜的邏輯推理能力與乾冷的幽默感。
-- **穩定工程**: 專為高流量群組設計，具備零重複回覆機制與 100% 的 Webhook 穩定性。
-- **持久人設**: 在不同會話中保持嚴謹的「黑塔式」人設，並根據對妳的記憶而不斷進化。
 
 ### 🏗️ 系統架構
 
@@ -77,6 +80,7 @@ graph TD
     
     CFW -->|語音合成| VS[GPT-SoVITS API]
     CFW -->|視覺生成| CUI[ComfyUI Cloud]
+    CFW -->|全網檢索| TAV[Tavily Search API]
     CFW -->|即時回傳| TG
 ```
 
@@ -86,11 +90,21 @@ graph TD
 - **智能群組管理**: 子頻道感知的全自動引導系統，以及定期的「群組觀察報告」。
 - **動態關係評估**: 薇拉的態度不再是簡單的分數，而是根據歷史記憶產生的智力尊重或冷淡。
 
-### 🛠️ 技術棧
-- **運行環境**: Cloudflare Workers (Edge Runtime)
-- **AI 引擎**: DeepSeek v4 Pro (核心), Gemini 1.5 Pro (視覺)
-- **資料儲存**: Cloudflare D1 (SQL), Cloudflare Vectorize (向量記憶)
-- **開發框架**: Grammy.js
+### 🛠️ 詳細技術棧
+
+| 類別 | 技術組件 | 角色 |
+| :--- | :--- | :--- |
+| **運算節點** | [Cloudflare Workers](https://workers.cloudflare.com/) | 邊緣執行環境，實現全球低延遲響應 |
+| **核心大腦** | [DeepSeek v4 Pro](https://deepseek.com/) | 負責高難度邏輯推理與核心對話演繹 |
+| **視覺系統** | [Google Gemini 1.5 Pro](https://deepmind.google/technologies/gemini/) | 讓薇拉具備理解圖片與貼圖的多模態能力 |
+| **向量記憶** | [Cloudflare Vectorize](https://developers.cloudflare.com/vectorize/) | 儲存長期記憶（RAG），實現長久相處感 |
+| **特徵向量** | [Cloudflare AI Workers](https://developers.cloudflare.com/workers-ai/) | 使用 `@cf/baai/bge-m3` 模型進行向量編碼 |
+| **資料儲存** | [Cloudflare D1](https://developers.cloudflare.com/d1/) | 分佈式 SQL 資料庫，管理用戶屬性與狀態 |
+| **開發框架** | [Grammy.js](https://grammy.dev/) | 極速且強大的 Telegram Bot 框架 |
+| **搜尋引擎** | [Tavily API](https://tavily.com/) | AI 專用的實時全網數據檢索系統 |
+| **視覺生成** | [ComfyUI Cloud](https://comfyanonymous.github.io/ComfyUI/) | 遠程觸發 ComfyUI 節點生成高清自拍圖 |
+| **語音合成** | [GPT-SoVITS](https://github.com/RVC-Boss/GPT-SoVITS) | 動態語音合成，賦予薇拉真實的聲音 |
+| **工程開發** | [TypeScript](https://www.typescriptlang.org/) | 使用強型別語言確保 AI 邏輯的嚴密性 |
 
 ---
 
