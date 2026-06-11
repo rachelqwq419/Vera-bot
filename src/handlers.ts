@@ -750,11 +750,16 @@ bot.command("addkey", async (ctx) => {
       const customName = (notes as any)["稱呼"] || "未設定";
 
       const text = 
-        `📊 **[樣本觀測面板]**\n\n` +
+        `📊 **[樣本觀測面板 - 序列 ${userId.slice(-4)}]**\n\n` +
         `👤 **目標**: ${ctx.from?.first_name}\n` +
-        `📝 **自訂稱呼**: ${customName}\n` +
-        `🏷️ **行為特徵標籤**: ${titlesDisplay}\n` +
-        `📂 **觀測摘要**: ${user.conversation_summary || '初次掃描，暫無深度數據。'}\n\n` +
+        `📝 **稱呼**: ${customName}\n` +
+        `🏷️ **標籤**: ${titlesDisplay}\n\n` +
+        `📂 **臨床觀測摘要 (Observation Log)**:\n` +
+        `\`\`\`\n` +
+        `STATUS: LOGGING...\n` +
+        `------------------\n` +
+        `${user.conversation_summary || 'INITIALIZING DATA...'}\n` +
+        `\`\`\`\n` +
         `*「妳的數據變化還算勉強有點意思，繼續保持吧。」*`;
 
       await ctx.reply(text, { parse_mode: "Markdown" });
