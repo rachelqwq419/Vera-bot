@@ -1,136 +1,341 @@
-# 🔮 Vera-bot (薇拉)
+# Vera-bot
 
-[![](https://img.shields.io/badge/Language-English-blue?style=for-the-badge)](#-english-version) [![](https://img.shields.io/badge/語言-繁體中文-red?style=for-the-badge)](#-繁體中文版本)
+[English](#english) | [繁體中文](#繁體中文)
 
 ---
 
-## 🇺🇸 English Version
+## English
 
-Vera-bot is an advanced, AI-driven Telegram group guide and interactive agent inspired by the character **Herta** from *Honkai: Star Rail*. Running on the bleeding edge of the Cloudflare ecosystem, Vera combines deep logical reasoning with long-term memory to provide a unique "simulated social observation" experience.
+Vera-bot is an AI-driven Telegram group agent built on Cloudflare Workers. It combines long-term memory, multimodal understanding, tool calling, image generation, voice synthesis, and group-management commands to create a persistent interactive character for Telegram communities.
 
-### ✨ Overview
-Vera isn't just another chatbot. She is a **Simulated Social Experiment Overseer**. Designed with a cool, detached, and brilliant persona, she monitors group dynamics, interacts with "guests" (users), and maintains a persistent memory of every interaction. 
+The project was designed as both a character bot and an engineering experiment: Vera observes group conversations, remembers user profiles, responds with personality, analyzes images, searches the web when needed, and can trigger external creative tools such as ComfyUI and GPT-SoVITS.
 
-### 🏗️ System Architecture
+## Screenshots / Demo
+
+Add Telegram screenshots or short demo GIFs here when available.
+
+```text
+docs/screenshots/chat-demo.png
+docs/screenshots/profile-command.png
+docs/screenshots/image-generation.png
+```
+
+## Architecture
 
 ```mermaid
 graph TD
-    User((Group Guest)) -->|Message| TG[Telegram API]
-    TG -->|Webhook| CFW[Cloudflare Workers]
-    
-    subgraph "Vera Core Brain"
-        CFW -->|Deduplication Shield| D1[(Cloudflare D1)]
-        CFW -->|Memory Retrieval| VEC[(Cloudflare Vectorize)]
-        CFW -->|Multimodal Processing| GEM[Google Gemini Vision]
-        CFW -->|Reasoning & Dialogue| DS[DeepSeek v4 Pro]
-        DS -->|Long-term Summarization| D1
-    end
-    
-    CFW -->|Voice Generation| VS[GPT-SoVITS API]
-    CFW -->|Visual Generation| CUI[ComfyUI Cloud]
-    CFW -->|Search Functionality| TAV[Tavily Search API]
-    CFW -->|Real-time Feedback| TG
+    User((Telegram User)) --> TG[Telegram API]
+    TG --> Worker[Cloudflare Workers]
+
+    Worker --> Grammy[Grammy.js Bot Router]
+    Grammy --> Commands[Command Handlers]
+    Grammy --> Events[Message and Member Events]
+
+    Events --> D1[(Cloudflare D1)]
+    Events --> Vector[(Cloudflare Vectorize)]
+    Events --> Gemini[Google Gemini Vision]
+    Events --> DeepSeek[DeepSeek Chat / Tool Calling]
+
+    DeepSeek --> Tavily[Tavily Web Search]
+    DeepSeek --> Guide[Vera Guide Tool]
+    DeepSeek --> ComfyUI[ComfyUI Image Generation]
+
+    Worker --> Voice[GPT-SoVITS Voice API]
+    Worker --> Cron[Scheduled Image Delivery]
+    Cron --> TelegramSend[Send Generated Media to Telegram]
 ```
 
-### 🌟 Core Features
-- **Advanced Contextual Intelligence**: Understands triadic conversations and includes a custom D1-based deduplication shield.
-- **Dynamic Memory & Archiving**: Dual-tier memory system (Internal logs + Concise Chinese summaries) and dynamic behavioral tags.
-- **Intelligent Group Management**: Topic-aware automated welcome system and periodic observation reports.
-- **Memory-Based Relationships**: Vera's attitude evolves naturally based on past interaction history.
+## Key Features
 
-### 🛠️ Detailed Tech Stack
+- **Telegram group agent** powered by Cloudflare Workers and Grammy.js
+- **Long-term memory** using Cloudflare D1 for profiles, summaries, logs, room metadata, and user state
+- **Vector memory layer** using Cloudflare Vectorize and Workers AI embeddings
+- **Multimodal input** through Google Gemini image analysis
+- **Reasoning and dialogue** using DeepSeek with tool-calling support
+- **Web search tool** through Tavily for real-time information
+- **Image generation workflow** connected to ComfyUI
+- **Voice reply support** through a GPT-SoVITS-compatible API endpoint
+- **Group-management commands** for room names, room descriptions, ordering, logs, memory reset, and emergency controls
+- **Scheduled tasks** for polling pending image generation jobs and delivering completed images back to Telegram
 
-| Category | Technology | Role |
+## Tech Stack
+
+| Area | Technology |
+| :--- | :--- |
+| Runtime | Cloudflare Workers |
+| Bot Framework | Grammy.js |
+| Language | TypeScript |
+| SQL Storage | Cloudflare D1 |
+| Vector Storage | Cloudflare Vectorize |
+| Embeddings | Cloudflare Workers AI |
+| Main LLM | DeepSeek API |
+| Vision | Google Gemini |
+| Search | Tavily API |
+| Image Generation | ComfyUI |
+| Voice | GPT-SoVITS-compatible API |
+| Testing | Vitest |
+| Deployment | Wrangler |
+
+## Project Structure
+
+```text
+Vera-bot/
++-- src/commands/        # Telegram slash commands
++-- src/core/            # Worker entrypoint and bot registration
++-- src/db/              # Memory/database helpers
++-- src/events/          # Message, callback, member, and topic handlers
++-- src/middlewares/     # Auth and auto-delete middleware
++-- src/services/        # DeepSeek, Gemini, ComfyUI, and voice services
++-- src/shared/          # Prompts, constants, types, guide, and utilities
++-- schema.sql           # Main D1 schema
++-- migrate_*.sql        # Incremental D1 migrations
++-- wrangler.jsonc       # Cloudflare Worker configuration
++```
+
+## Commands
+
+| Command | Purpose | Access |
 | :--- | :--- | :--- |
-| **Compute** | [Cloudflare Workers](https://workers.cloudflare.com/) | Edge runtime for global, low-latency execution |
-| **Primary AI** | [DeepSeek v4 Pro](https://deepseek.com/) | Logic, reasoning, and core dialogue generation |
-| **Vision AI** | [Google Gemini 1.5 Pro](https://deepmind.google/technologies/gemini/) | Multimodal understanding of images and stickers |
-| **Vector DB** | [Cloudflare Vectorize](https://developers.cloudflare.com/vectorize/) | Vector storage for Long-term Memory (RAG) |
-| **Embedding** | [Cloudflare AI Workers](https://developers.cloudflare.com/workers-ai/) | `@cf/baai/bge-m3` model for vector generation |
-| **SQL DB** | [Cloudflare D1](https://developers.cloudflare.com/d1/) | Distributed SQL for user profiles and state management |
-| **Bot Framework** | [Grammy.js](https://grammy.dev/) | High-performance Telegram Bot framework |
-| **Search Engine** | [Tavily API](https://tavily.com/) | AI-optimized web search for real-time information |
-| **Image Gen** | [ComfyUI Cloud](https://comfyanonymous.github.io/ComfyUI/) | Remote generation of "holographic visual data shards" |
-| **Voice Synth** | [GPT-SoVITS](https://github.com/RVC-Boss/GPT-SoVITS) | Dynamic voice generation and response synthesis |
-| **Development** | [TypeScript](https://www.typescriptlang.org/) | Type-safe development for complex AI logic |
+| `/start` | Basic bot entry message | User |
+| `/vera` | Show Vera's guide/help message | User |
+| `/profile` | View personal memory/profile summary | User |
+| `/fortune` | Generate a daily fortune-style reply | User |
+| `/gi` or `/group_impression` | Generate a group impression report | User |
+| `/cg` | View unlocked/generated CG records | User |
+| `/deletecg` | Delete CG records | Admin |
+| `/setroomname` | Set a room/topic display name | Admin |
+| `/setroomdesc` | Set a room/topic description | Admin |
+| `/setroomorder` | Set room/topic display order | Admin |
+| `/purge_all_memory` | Reset stored memory | Admin |
+| `/emergency` | Emergency control command | Admin |
+
+## Quick Start
+
+### 1. Install dependencies
+
+```bash
+npm install
+```
+
+### 2. Configure local environment
+
+Create a `.dev.vars` file for local development. Do not commit real secrets.
+
+```env
+BOT_TOKEN=your_telegram_bot_token
+DEEPSEEK_API_KEY=your_deepseek_key
+GEMINI_API_KEY=your_gemini_key
+TAVILY_API_KEY=your_tavily_key
+VOICE_API_URL=optional_voice_api_endpoint
+```
+
+### 3. Create / migrate D1 database
+
+```bash
+npx wrangler d1 execute vera-db --remote --file=schema.sql
+npx wrangler d1 execute vera-db --remote --file=migrate_rooms.sql
+npx wrangler d1 execute vera-db --remote --file=migrate_phase1.sql
+npx wrangler d1 execute vera-db --remote --file=migrate_phase2.sql
+npx wrangler d1 execute vera-db --remote --file=migrate_welcome_logs.sql
+```
+
+Run only the migrations that match the current database state.
+
+### 4. Run locally
+
+```bash
+npm run dev
+```
+
+### 5. Deploy
+
+```bash
+npm run deploy
+```
+
+## Security Notes
+
+- `.dev.vars`, `.env`, `.wrangler/`, and `node_modules/` should never be committed.
+- Keep API keys in Cloudflare secrets or local environment files.
+- Review any hardcoded third-party endpoints before making the repository public.
+- If the bot is used in real Telegram groups, review memory retention and admin-only commands carefully.
+
+## Roadmap
+
+- Move all external service endpoints into environment variables
+- Add screenshots and short demo GIFs
+- Add clearer setup scripts for D1 migrations
+- Add tests for command handlers and memory logic
+- Improve admin documentation for production-like deployment
+- Add privacy controls for memory deletion and data export
 
 ---
 
-## 🇭🇰 繁體中文版本
+## 繁體中文
 
-薇拉 (Vera-bot) 是一款受《崩壞：星穹鐵道》中「**黑塔**」啟發而設計的進階 AI Telegram 群組引導機器人。基於 Cloudflare 生態系的尖端技術，薇拉結合了深層邏輯推理與長期記憶系統，為群組提供獨特的「模擬社交觀測」體驗。
+Vera-bot 是一個部署在 Cloudflare Workers 上的 AI Telegram 群組智能代理。它結合長期記憶、多模態理解、工具調用、圖像生成、語音生成及群組管理指令，目標是在 Telegram 群組入面建立一個有持續記憶和角色性格的互動式 AI 角色。
 
-### ✨ 概覽
-薇拉不只是一個普通的聊天機器人。她是「**模擬社交實驗的觀測者**」。她擁有冷靜、疏離且天才的人設，負責監控群組動態、與「客人」（用戶）互動，並對每一次交流保持持久的記憶。
+這個專案既是角色 bot，也是一次工程實驗：Vera 會觀察群組對話、記住使用者資料、以固定人格回應、分析圖片、需要時搜尋網絡資料，並能連接 ComfyUI、GPT-SoVITS 等外部創作工具。
 
-### 🏗️ 系統架構
+## 截圖 / Demo
+
+之後可以加入 Telegram 對話截圖或短 GIF：
+
+```text
+docs/screenshots/chat-demo.png
+docs/screenshots/profile-command.png
+docs/screenshots/image-generation.png
+```
+
+## 系統架構
 
 ```mermaid
 graph TD
-    User((群組客人)) -->|發送訊息| TG[Telegram API]
-    TG -->|Webhook| CFW[Cloudflare Workers]
-    
-    subgraph "核心大腦"
-        CFW -->|去重護盾| D1[(Cloudflare D1)]
-        CFW -->|記憶檢索| VEC[(Cloudflare Vectorize)]
-        CFW -->|多模態處理| GEM[Google Gemini Vision]
-        CFW -->|推理與對話| DS[DeepSeek v4 Pro]
-        DS -->|長期總結| D1
-    end
-    
-    CFW -->|語音合成| VS[GPT-SoVITS API]
-    CFW -->|視覺生成| CUI[ComfyUI Cloud]
-    CFW -->|全網檢索| TAV[Tavily Search API]
-    CFW -->|即時回傳| TG
+    User((Telegram 使用者)) --> TG[Telegram API]
+    TG --> Worker[Cloudflare Workers]
+
+    Worker --> Grammy[Grammy.js Bot Router]
+    Grammy --> Commands[指令處理]
+    Grammy --> Events[訊息與群組事件]
+
+    Events --> D1[(Cloudflare D1)]
+    Events --> Vector[(Cloudflare Vectorize)]
+    Events --> Gemini[Google Gemini Vision]
+    Events --> DeepSeek[DeepSeek 對話與工具調用]
+
+    DeepSeek --> Tavily[Tavily 網絡搜尋]
+    DeepSeek --> Guide[Vera Guide Tool]
+    DeepSeek --> ComfyUI[ComfyUI 圖像生成]
+
+    Worker --> Voice[GPT-SoVITS 語音 API]
+    Worker --> Cron[排程圖片任務]
+    Cron --> TelegramSend[發送生成圖片到 Telegram]
 ```
 
-### 🌟 核心功能
-- **進階上下文智能**: 具備「三人對話理解」能力，並內建 D1 去重護盾，徹底解決重複回覆問題。
-- **動態記憶與歸檔**: 雙軌制記憶系統（內部詳細日誌 + 對外精簡摘要），自動賦予客人動態行為標籤。
-- **智能群組管理**: 子頻道感知的全自動引導系統，以及定期的「群組觀察報告」。
-- **動態關係評估**: 薇拉的態度不再是簡單的分數，而是根據歷史記憶產生的智力尊重或冷淡。
+## 主要功能
 
-### 🛠️ 詳細技術棧
+- **Telegram 群組智能代理**：以 Cloudflare Workers 和 Grammy.js 建立 webhook bot
+- **長期記憶**：使用 Cloudflare D1 儲存使用者 profile、對話摘要、房間資料及狀態
+- **向量記憶層**：使用 Cloudflare Vectorize 及 Workers AI embeddings
+- **多模態理解**：使用 Google Gemini 分析圖片內容
+- **推理與對話**：使用 DeepSeek，並支援 tool calling
+- **網絡搜尋工具**：透過 Tavily 搜尋即時資訊
+- **圖像生成流程**：連接 ComfyUI 生成角色圖片/CG
+- **語音回覆**：支援 GPT-SoVITS 相容 API endpoint
+- **群組管理指令**：支援房間名稱、介紹、排序、logs、記憶重置及 emergency control
+- **排程任務**：定時檢查 pending image jobs，完成後發送回 Telegram
 
-| 類別 | 技術組件 | 角色 |
+## 技術棧
+
+| 範疇 | 技術 |
+| :--- | :--- |
+| Runtime | Cloudflare Workers |
+| Bot Framework | Grammy.js |
+| 語言 | TypeScript |
+| SQL Storage | Cloudflare D1 |
+| Vector Storage | Cloudflare Vectorize |
+| Embeddings | Cloudflare Workers AI |
+| Main LLM | DeepSeek API |
+| Vision | Google Gemini |
+| Search | Tavily API |
+| Image Generation | ComfyUI |
+| Voice | GPT-SoVITS-compatible API |
+| Testing | Vitest |
+| Deployment | Wrangler |
+
+## 專案結構
+
+```text
+Vera-bot/
++-- src/commands/        # Telegram slash commands
++-- src/core/            # Worker entrypoint and bot registration
++-- src/db/              # Memory/database helpers
++-- src/events/          # Message, callback, member, and topic handlers
++-- src/middlewares/     # Auth and auto-delete middleware
++-- src/services/        # DeepSeek, Gemini, ComfyUI, and voice services
++-- src/shared/          # Prompts, constants, types, guide, and utilities
++-- schema.sql           # Main D1 schema
++-- migrate_*.sql        # Incremental D1 migrations
++-- wrangler.jsonc       # Cloudflare Worker configuration
++```
+
+## 指令列表
+
+| 指令 | 用途 | 權限 |
 | :--- | :--- | :--- |
-| **運算節點** | [Cloudflare Workers](https://workers.cloudflare.com/) | 邊緣執行環境，實現全球低延遲響應 |
-| **核心大腦** | [DeepSeek v4 Pro](https://deepseek.com/) | 負責高難度邏輯推理與核心對話演繹 |
-| **視覺系統** | [Google Gemini 1.5 Pro](https://deepmind.google/technologies/gemini/) | 讓薇拉具備理解圖片與貼圖的多模態能力 |
-| **向量記憶** | [Cloudflare Vectorize](https://developers.cloudflare.com/vectorize/) | 儲存長期記憶（RAG），實現長久相處感 |
-| **特徵向量** | [Cloudflare AI Workers](https://developers.cloudflare.com/workers-ai/) | 使用 `@cf/baai/bge-m3` 模型進行向量編碼 |
-| **資料儲存** | [Cloudflare D1](https://developers.cloudflare.com/d1/) | 分佈式 SQL 資料庫，管理用戶屬性與狀態 |
-| **開發框架** | [Grammy.js](https://grammy.dev/) | 極速且強大的 Telegram Bot 框架 |
-| **搜尋引擎** | [Tavily API](https://tavily.com/) | AI 專用的實時全網數據檢索系統 |
-| **視覺生成** | [ComfyUI Cloud](https://comfyanonymous.github.io/ComfyUI/) | 遠程觸發 ComfyUI 節點生成高清自拍圖 |
-| **語音合成** | [GPT-SoVITS](https://github.com/RVC-Boss/GPT-SoVITS) | 動態語音合成，賦予薇拉真實的聲音 |
-| **工程開發** | [TypeScript](https://www.typescriptlang.org/) | 使用強型別語言確保 AI 邏輯的嚴密性 |
+| `/start` | 基本啟動訊息 | User |
+| `/vera` | 顯示 Vera 使用指南 | User |
+| `/profile` | 查看個人記憶/profile 摘要 | User |
+| `/fortune` | 生成每日 fortune 回覆 | User |
+| `/gi` 或 `/group_impression` | 生成群組觀察報告 | User |
+| `/cg` | 查看已解鎖/生成的 CG 紀錄 | User |
+| `/deletecg` | 刪除 CG 紀錄 | Admin |
+| `/setroomname` | 設定房間/topic 顯示名稱 | Admin |
+| `/setroomdesc` | 設定房間/topic 介紹 | Admin |
+| `/setroomorder` | 設定房間/topic 排序 | Admin |
+| `/purge_all_memory` | 重置記憶資料 | Admin |
+| `/emergency` | 緊急控制指令 | Admin |
+
+## 快速開始
+
+### 1. 安裝依賴
+
+```bash
+npm install
+```
+
+### 2. 設定本地環境變數
+
+建立 `.dev.vars` 作本地開發用途。不要 commit 真實 secrets。
+
+```env
+BOT_TOKEN=your_telegram_bot_token
+DEEPSEEK_API_KEY=your_deepseek_key
+GEMINI_API_KEY=your_gemini_key
+TAVILY_API_KEY=your_tavily_key
+VOICE_API_URL=optional_voice_api_endpoint
+```
+
+### 3. 建立 / 遷移 D1 資料庫
+
+```bash
+npx wrangler d1 execute vera-db --remote --file=schema.sql
+npx wrangler d1 execute vera-db --remote --file=migrate_rooms.sql
+npx wrangler d1 execute vera-db --remote --file=migrate_phase1.sql
+npx wrangler d1 execute vera-db --remote --file=migrate_phase2.sql
+npx wrangler d1 execute vera-db --remote --file=migrate_welcome_logs.sql
+```
+
+只需要執行符合目前資料庫狀態的 migration。
+
+### 4. 本地運行
+
+```bash
+npm run dev
+```
+
+### 5. 部署
+
+```bash
+npm run deploy
+```
+
+## 安全注意事項
+
+- `.dev.vars`、`.env`、`.wrangler/`、`node_modules/` 不應 commit
+- API keys 應放在 Cloudflare secrets 或本地環境檔
+- 如果 repo 要公開，請先檢查有沒有 hardcoded 第三方 endpoint
+- 如果 bot 用於真實 Telegram 群組，請謹慎處理記憶保存、刪除及 admin-only 指令
+
+## 未來改進方向
+
+- 將所有外部服務 endpoint 移到環境變數
+- 加入 Telegram 對話截圖或 demo GIF
+- 整理 D1 migration setup scripts
+- 為 command handlers 和 memory logic 加測試
+- 補充 production-like deployment admin guide
+- 加入記憶刪除及資料匯出等 privacy controls
 
 ---
 
-## 🛠️ Command Reference | 指令手冊
-
-| 指令 (Command) | 說明 (Description) | 權限 (Auth) |
-| :--- | :--- | :--- |
-| `/profile` | 檢視觀測日誌與標籤 (View observation log & tags) | 客人 (Guests) |
-| `/fortune` | 今日概率運算 (Daily Fortune) | 客人 (Guests) |
-| `/gi` | 群組觀察報告 (Group Impression Report) | 客人 (Guests) |
-| `/purge_all_memory` | 終極重置系統 (Total Reset) | 創作者 (Admin) |
-| `/setroomdesc` | 設定房間介紹 (Set room description) | 創作者 (Admin) |
-| `/setroomorder` | 調整房間排序 (Set room sort order) | 創作者 (Admin) |
-
----
-
-## 🚀 Quick Start | 快速開始
-
-1. **Environment (環境)**: Copy `.dev.vars.example` to `.dev.vars` and fill in API keys.
-2. **Database (資料庫)**: 
-   ```bash
-   npx wrangler d1 execute vera-db --remote --file=schema.sql
-   npx wrangler d1 execute vera-db --remote --file=migrate_rooms.sql
-   ```
-3. **Deploy (部署)**: `npm run deploy`.
-
----
-
-> *"Vera is observing your every move. Ensure your data remains interesting. vera~"*
+> Vera is observing the room. Keep the data interesting.
