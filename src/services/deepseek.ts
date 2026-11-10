@@ -208,7 +208,7 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
 
   while (iteration < 5) {
     const data = await fetchWithFallback(env, { 
-      model: "deepseek-v4.1-flash", 
+      model: "deepseek-flash", 
       messages: currentMessages, 
       temperature: userTemperature,
       tools: tools,
