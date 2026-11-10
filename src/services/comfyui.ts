@@ -1,4 +1,4 @@
-import type { Env } from "./types";
+import type { Env } from "../shared/types";
 
 /**
  * 呼叫 ComfyUI 產生自拍

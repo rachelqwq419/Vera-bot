@@ -1,5 +1,5 @@
-import type { Env } from "./types";
-import { fetchWithFallback } from "./deepseek";
+import type { Env } from "../shared/types";
+import { fetchWithFallback } from "../services/deepseek";
 
 /**
  * 記憶歸檔系統 (薇拉版)
@@ -41,29 +41,29 @@ export async function summarizeMemory(
     .join('\n');
 
   const summaryPrompt = `
-You are a high-level data archival AI for the "Vera" researcher bot. Process the recent conversation and update the subject's profile.
+妳是薇拉(Vera)的心跳回憶錄系統。請幫薇拉整理她與朋友們的相處點滴。
 
-[Current Profile Summary]:
-${currentSummary || '(No prior data recorded)'}
+[目前的記憶摘要]:
+${currentSummary || '(目前還沒有相關紀錄喔)'}
 
-[Recent Data Stream]:
+[最近的對話內容]:
 ${historyText}
 
-[Task]:
-1. Update the long-term summary. Merge new critical findings into the profile.
-2. Analyze the quality of the relationship between Vera and the guest.
-3. Generate a unique "Past Interaction Snapshot" for this segment.
-4. Observe the guest's behavior and optionally generate a short, creative "Tag" or "Title" (e.g., "深夜話癆", "貓咪狂熱者", "數據干擾源") that summarizes their recent conversational habit.
+[任務]:
+1. 更新長期記憶。將新的發現（例如對方的興趣、重要的事情）融入摘要中。
+2. 感受這段時間薇拉與對方的互動氣氛。
+3. 為這段互動寫下一個簡短的「心情快照」。
+4. 觀察對方的習慣，給他一個可愛的「小標籤」或「頭銜」（例如：「深夜話癆」、「貓咪狂熱者」、「溫柔的傾聽者」）。
 
-[Output Requirements]:
-- Format: JSON.
-- **global_summary**: Detailed English clinical log (3-5 bullet points) for Vera's internal logic.
-- **chinese_summary**: A VERY CONCISE (1-3 sentences) summary in **TRADITIONAL CHINESE** for the guest to see. It should sound like Vera's direct, slightly blunt observation.
-- **new_title**: Optional Traditional Chinese tag.
+[輸出要求]:
+- 格式：JSON。
+- **global_summary**: 薇拉內心的詳細筆記（繁體中文），記錄對方的性格與重要細節。
+- **chinese_summary**: 一段**非常精簡**（1-3 句話）的溫馨話語，這是給對方看的。語氣要像薇拉溫柔的真心話。
+- **new_title**: 可選的小標籤。
 
 {
-  "global_summary": "- Pattern: ...\n- Knowledge: ...",
-  "chinese_summary": "妳這幾次的發言數據偏差很大，我懷疑妳的大腦模組需要重置。",
+  "global_summary": "對方很喜歡分享日常，特別是...",
+  "chinese_summary": "最近能和你聊這麼多，薇拉覺得心裡暖暖的，也更了解你了喔。",
   "likes": [],
   "dislikes": [],
   "new_title": ""

@@ -5,7 +5,7 @@
 {
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "vera-bot",
-	"main": "src/index.ts",
+	"main": "src/core/index.ts",
 	"compatibility_date": "2026-05-20",
 	"observability": {
 		"enabled": true

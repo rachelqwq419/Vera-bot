@@ -1,5 +1,5 @@
 import { InputFile } from "grammy";
-import type { Env } from "./types";
+import type { Env } from "../shared/types";
 
 export async function generateVoice(env: Env, text: string): Promise<Uint8Array | null> {
   const VOICE_API_URL = env.VOICE_API_URL;

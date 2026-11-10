@@ -1,4 +1,4 @@
-import type { Env } from "./types";
+import type { Env } from "../shared/types";
 
 /**
  * 使用 Google Gemini 1.5 Flash 識別圖片內容

@@ -1,10 +1,10 @@
-import type { Env, UserRecord } from "./types";
-import { HISTORY_LIMIT, MOODS, BOSS_ID, MARU_USER_ID, LALA_USER_ID, KANON_USER_ID, ADMIN_USER_ID, ADMIN_ALIASES, type Mood } from "./constants";
-import { SYSTEM_PROMPT_TEMPLATE, INNER_OS_MARKER } from "./prompts";
-import { checkAchievements, computeFavoritePlay } from "./achievements";
-import { recordSpecialMoment, pruneOldMessages } from "./utils";
-import { summarizeMemory, retrieveVectorMemories } from "./memory";
-import { VERA_GUIDE } from "./guide";
+import type { Env, UserRecord } from "../shared/types";
+import { HISTORY_LIMIT, MOODS, BOSS_ID, MARU_USER_ID, LALA_USER_ID, KANON_USER_ID, ADMIN_USER_ID, ADMIN_ALIASES, type Mood } from "../shared/constants";
+import { SYSTEM_PROMPT_TEMPLATE, INNER_OS_MARKER } from "../shared/prompts";
+import { checkAchievements, computeFavoritePlay } from "../shared/achievements";
+import { recordSpecialMoment, pruneOldMessages } from "../shared/utils";
+import { summarizeMemory, retrieveVectorMemories } from "../db/memory";
+import { VERA_GUIDE } from "../shared/guide";
 import { drawWithComfyUI } from "./comfyui";
 
 export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: string, userName: string, userMessage: string, chatId: string, roomName: string = "未知數據區", threadId?: number, userLogin?: string): Promise<{ reply: string, image?: Uint8Array }> {
@@ -111,6 +111,15 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
   // 🆕 修改：取得該 Thread 的專屬記憶摘要（如果有）
   const threadMemory = threadId ? `這是名為「${roomName}」的子頻道空間，你應該記住這個房間特有的氛圍。` : "這是主聊天大廳。";
 
+  // 🆕 修改：動態判斷長度限制
+  const isPrivate = chatId.toString() === userId.toString() || !chatId.toString().startsWith("-100");
+  const lengthConstraint = isPrivate 
+    ? "目前是私人對話，妳可以放心地與對方長談，不受字數限制，盡情展現妳的溫柔與體貼。" 
+    : "目前是在群組中聊天，為了不洗版，請將回覆控制在 80-100 字以內，簡潔但不失溫度。";
+  const innerLengthHint = isPrivate
+    ? "私人對話，長度不限，可詳細回覆。"
+    : "群組對話，請嚴格控制在 80-100 字以內。";
+
   let dynamicSystemPrompt = SYSTEM_PROMPT_TEMPLATE
     .replace(/{{user_name}}/g, userName)
     .replace(/{{preferred_name_info}}/g, preferredNameInfo)
@@ -121,16 +130,19 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
     .replace(/{{user_notes}}/g, userNotesText)
     .replace(/{{titles}}/g, titlesText)
     .replace(/{{mood}}/g, `${moodInfo.emoji} ${moodInfo.label}`)
-    .replace(/{{room_name}}/g, roomName) + (relatedMemories.length > 0 ? `\n\n[Related Data Snippets]:\n${relatedMemories.join('\n')}` : '');
+    .replace(/{{room_name}}/g, roomName)
+    .replace(/{{length_constraint}}/g, lengthConstraint) + (relatedMemories.length > 0 ? `\n\n[我們之前的回憶紀錄]:\n${relatedMemories.join('\n')}` : '');
 
   if (userId === ADMIN_USER_ID) {
-    dynamicSystemPrompt += `\n\n[AUTHORITY] 創作者「姐姐大人」正在存取終端。`;
+    dynamicSystemPrompt += `\n\n[親愛的創作者] 妳最愛的「姐姐大人」正在跟妳說話喔，記得要表現得最溫和、最親近！`;
   }
+
+  const dynamicInnerOS = INNER_OS_MARKER.replace(/{{inner_length_hint}}/g, innerLengthHint);
 
   const messagesPayload = [
     { role: "system", content: dynamicSystemPrompt },
     ...history,
-    { role: "user", content: formattedUserMessage + INNER_OS_MARKER },
+    { role: "user", content: formattedUserMessage + dynamicInnerOS },
   ];
 
   const tools: any[] = [
@@ -138,7 +150,7 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
       type: "function",
       function: {
         name: "web_search",
-        description: "檢索全球數據庫。",
+        description: "檢索全球資訊。",
         parameters: { type: "object", properties: { query: { type: "string" } }, required: ["query"] }
       }
     },
@@ -146,7 +158,7 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
       type: "function",
       function: {
         name: "read_vera_guide",
-        description: "讀取薇拉的數據對手冊。",
+        description: "讀取薇拉的小手冊。",
         parameters: { type: "object", properties: {} }
       }
     }
@@ -158,7 +170,7 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
       type: "function",
       function: {
         name: "generate_selfie",
-        description: "傳輸薇拉的視覺數據包。",
+        description: "傳送薇拉的小照片。",
         parameters: {
           type: "object",
           properties: { scene_description: { type: "string", description: "ENGLISH tags only." } },
@@ -174,7 +186,7 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
 
   while (iteration < 5) {
     const data = await fetchWithFallback(env, { 
-      model: "deepseek-v4-pro", 
+      model: "deepseek-v4.1-flash", 
       messages: currentMessages, 
       temperature: userTemperature,
       tools: tools,
@@ -204,7 +216,7 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
               await env.vera_db.prepare(`INSERT INTO pending_images (prompt_id, chat_id, thread_id, user_id, status) VALUES (?, ?, ?, ?, 'pending')`).bind(result.prompt_id, chatId, threadId || null, userId).run();
             }
           })());
-          currentMessages.push({ role: "tool", tool_call_id: toolCall.id, content: "視覺數據包已加入傳輸隊列。" });
+          currentMessages.push({ role: "tool", tool_call_id: toolCall.id, content: "薇拉的小照片正在沖印中，請稍等喔～" });
         }
       }
       iteration++;
@@ -214,7 +226,7 @@ export async function callDeepSeek(env: Env, execCtx: ExecutionContext, userId: 
     break;
   }
 
-  if (!aiReply) aiReply = "（薇拉輕輕整理了一下衣擺，用看著某種不可燃垃圾的優雅眼神注視著你）";
+  if (!aiReply) aiReply = "（薇拉害羞地歪著頭，臉紅紅地看著你，似乎不知道該說什麼好呢...）";
 
   // ── 6. 解析與清理 ──
   const cleanMsg = userMessage.toLowerCase();
@@ -258,18 +270,49 @@ export async function fetchWithFallback(env: Env, payload: any, triedKeys: strin
   const nextKeyObj = keysToTry.find(k => !triedKeys.includes(k.key));
   if (!nextKeyObj) throw new Error("所有數據通路已關閉（API Key 耗盡）。");
 
-  const response = await fetch("https://api.deepseek.com/chat/completions", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${nextKeyObj.key}` },
-    body: JSON.stringify(payload),
-  });
+  let data: any;
+  try {
+    const response = await fetch("https://api.deepseek.com/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${nextKeyObj.key}` },
+      body: JSON.stringify(payload),
+    });
 
-  const data = await response.json() as any;
-  if (data.error && (data.error.code === 'insufficient_balance' || data.error.message.includes('balance'))) {
-    if (nextKeyObj.status !== 'env') await env.vera_db.prepare(`UPDATE api_keys SET status = 'depleted' WHERE api_key = ?`).bind(nextKeyObj.key).run();
+    const rawText = await response.text();
+    try {
+      data = rawText ? JSON.parse(rawText) : {};
+    } catch {
+      data = { error: { message: `Non-JSON response (${response.status}): ${rawText.substring(0, 200)}` } };
+    }
+
+    if (!response.ok && !data.error) {
+      data.error = { message: `HTTP ${response.status} ${response.statusText}` };
+    }
+  } catch (error: any) {
+    data = { error: { message: error?.message || String(error) } };
+  }
+
+  const errorMessage = data?.error?.message || "";
+  const errorCode = data?.error?.code || "";
+  const shouldTryNextKey =
+    errorCode === "insufficient_balance" ||
+    errorMessage.toLowerCase().includes("balance") ||
+    errorMessage.toLowerCase().includes("quota") ||
+    errorMessage.toLowerCase().includes("invalid api key") ||
+    errorMessage.toLowerCase().includes("authentication") ||
+    !data?.choices?.[0]?.message;
+
+  if (shouldTryNextKey) {
+    if (nextKeyObj.status !== 'env' && (errorCode === "insufficient_balance" || errorMessage.toLowerCase().includes("balance") || errorMessage.toLowerCase().includes("quota"))) {
+      await env.vera_db.prepare(`UPDATE api_keys SET status = 'depleted' WHERE api_key = ?`).bind(nextKeyObj.key).run();
+    }
+
+    const maskedKey = `${nextKeyObj.key.substring(0, 8)}...${nextKeyObj.key.slice(-4)}`;
+    console.warn(`[DeepSeek] Key ${maskedKey} failed: ${errorCode || "invalid_response"} ${errorMessage || "missing choices[0].message"}`);
     triedKeys.push(nextKeyObj.key);
     return fetchWithFallback(env, payload, triedKeys);
   }
+
   return data;
 }
 

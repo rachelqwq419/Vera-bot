@@ -1,7 +1,7 @@
 import { Bot, webhookCallback } from "grammy";
-import type { Env } from "./types";
-import { registerHandlers } from "./handlers";
-import { sendPhotoToTelegram, drawWithComfyUI } from "./comfyui";
+import type { Env } from "../shared/types";
+import { registerHandlers } from "./bot";
+import { sendPhotoToTelegram, drawWithComfyUI } from "../services/comfyui";
 
 export default {
   async fetch(request: Request, env: Env, execCtx: ExecutionContext): Promise<Response> {
